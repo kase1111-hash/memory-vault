@@ -10,20 +10,26 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 
 def _index_exists(c: sqlite3.Cursor, index_name: str) -> bool:
-    c.execute("SELECT name FROM sqlite_master WHERE type='index' AND name=?", (index_name,))
+    c.execute("SELECT name FROM sqlite_master WHERE TYPE='index' AND name=?", (index_name,))
     return c.fetchone() is not None
 
 
 def _table_exists(c: sqlite3.Cursor, table_name: str) -> bool:
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
+    c.execute("SELECT name FROM sqlite_master WHERE TYPE='table' AND name=?", (table_name,))
     return c.fetchone() is not None
 
 
 def init_db():
+    """
+    Initialize the SQLite database with all tables, indexes, FTS virtual tables,
+    and backup tracking. All operations are idempotent.
+    """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    # --- Core Tables (unchanged) ---
+    # --- Core Tables ---
+
+    # Encryption profiles
     c.execute('''
         CREATE TABLE IF NOT EXISTS encryption_profiles (
             profile_id TEXT PRIMARY KEY,
@@ -34,6 +40,7 @@ def init_db():
         )
     ''')
 
+    # Memories (cognitive artifacts)
     c.execute('''
         CREATE TABLE IF NOT EXISTS memories (
             memory_id TEXT PRIMARY KEY,
@@ -46,14 +53,15 @@ def init_db():
             nonce BLOB NOT NULL,
             salt BLOB,
             intent_ref TEXT,
-            value_metadata TEXT,              -- JSON string, searchable
-            access_policy TEXT,
+            value_metadata TEXT,              -- JSON string, FTS indexed
+            access_policy TEXT,               -- JSON string
             audit_proof TEXT,
-            sealed_blob BLOB,
+            sealed_blob BLOB,                 -- TPM-sealed keys
             FOREIGN KEY (encryption_profile) REFERENCES encryption_profiles (profile_id)
         )
     ''')
 
+    # Recall audit log
     c.execute('''
         CREATE TABLE IF NOT EXISTS recall_log (
             request_id TEXT PRIMARY KEY,
@@ -61,56 +69,63 @@ def init_db():
             requester TEXT NOT NULL,
             timestamp TEXT NOT NULL,
             approved INTEGER NOT NULL,
-            justification TEXT,               -- Searchable
+            justification TEXT,               -- FTS indexed
             FOREIGN KEY (memory_id) REFERENCES memories (memory_id)
         )
     ''')
 
-    # --- Column migrations ---
+    # Backup tracking for incremental backups
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS backups (
+            backup_id TEXT PRIMARY KEY,
+            timestamp TEXT NOT NULL,
+            type TEXT NOT NULL,               -- 'full' or 'incremental'
+            parent_backup_id TEXT,            -- NULL for full backups
+            memory_count INTEGER NOT NULL,
+            description TEXT
+        )
+    ''')
+
+    # --- Safe Column Migrations ---
     c.execute("PRAGMA table_info(memories)")
     columns = [col[1] for col in c.fetchall()]
     if 'sealed_blob' not in columns:
         c.execute("ALTER TABLE memories ADD COLUMN sealed_blob BLOB")
-        print("Added 'sealed_blob' column")
+        print("Added 'sealed_blob' column to memories")
 
     # --- Performance Indexes ---
-    if not _index_exists(c, "idx_memories_classification"):
-        c.execute("CREATE INDEX idx_memories_classification ON memories (classification)")
-    if not _index_exists(c, "idx_memories_encryption_profile"):
-        c.execute("CREATE INDEX idx_memories_encryption_profile ON memories (encryption_profile)")
-    if not _index_exists(c, "idx_recall_log_memory_approved_timestamp"):
-        c.execute('''CREATE INDEX idx_recall_log_memory_approved_timestamp 
-                     ON recall_log (memory_id, approved, timestamp DESC)''')
-    if not _index_exists(c, "idx_recall_log_timestamp"):
-        c.execute("CREATE INDEX idx_recall_log_timestamp ON recall_log (timestamp)")
-    if not _index_exists(c, "idx_recall_log_approved"):
-        c.execute("CREATE INDEX idx_recall_log_approved ON recall_log (approved)")
-    if not _index_exists(c, "idx_recall_log_requester"):
-        c.execute("CREATE INDEX idx_recall_log_requester ON recall_log (requester)")
+    indexes = [
+        ("idx_memories_classification", "CREATE INDEX idx_memories_classification ON memories (classification)"),
+        ("idx_memories_encryption_profile", "CREATE INDEX idx_memories_encryption_profile ON memories (encryption_profile)"),
+        ("idx_recall_log_memory_approved_timestamp", 
+         "CREATE INDEX idx_recall_log_memory_approved_timestamp ON recall_log (memory_id, approved, timestamp DESC)"),
+        ("idx_recall_log_timestamp", "CREATE INDEX idx_recall_log_timestamp ON recall_log (timestamp)"),
+        ("idx_recall_log_approved", "CREATE INDEX idx_recall_log_approved ON recall_log (approved)"),
+        ("idx_recall_log_requester", "CREATE INDEX idx_recall_log_requester ON recall_log (requester)"),
+    ]
+    for name, sql in indexes:
+        if not _index_exists(c, name):
+            c.execute(sql)
+            print(f"Created index: {name}")
 
-    # --- Full-Text Search Setup ---
+    # --- Full-Text Search Virtual Tables ---
 
-    # 1. FTS5 virtual table for value_metadata
+    # Metadata search
     if not _table_exists(c, "memories_fts"):
         c.execute('''
             CREATE VIRTUAL TABLE memories_fts USING fts5(
-                memory_id,
-                value_metadata,
-                content='memories',
-                content_rowid='rowid'
+                memory_id, value_metadata, content='memories', content_rowid='rowid'
             )
         ''')
-        print("Created FTS table: memories_fts")
-
-        # Triggers to keep FTS index in sync
+        # Triggers
         c.execute('''
-            CREATE TRIGGER IF NOT EXISTS memories_insert_fts AFTER INSERT ON memories BEGIN
+            CREATE TRIGGER memories_insert_fts AFTER INSERT ON memories BEGIN
                 INSERT INTO memories_fts(rowid, memory_id, value_metadata)
                 VALUES (new.rowid, new.memory_id, new.value_metadata);
             END;
         ''')
         c.execute('''
-            CREATE TRIGGER IF NOT EXISTS memories_update_fts AFTER UPDATE ON memories BEGIN
+            CREATE TRIGGER memories_update_fts AFTER UPDATE ON memories BEGIN
                 INSERT INTO memories_fts(memories_fts, rowid, memory_id, value_metadata)
                 VALUES ('delete', old.rowid, old.memory_id, old.value_metadata);
                 INSERT INTO memories_fts(rowid, memory_id, value_metadata)
@@ -118,45 +133,34 @@ def init_db():
             END;
         ''')
         c.execute('''
-            CREATE TRIGGER IF NOT EXISTS memories_delete_fts AFTER DELETE ON memories BEGIN
+            CREATE TRIGGER memories_delete_fts AFTER DELETE ON memories BEGIN
                 INSERT INTO memories_fts(memories_fts, rowid, memory_id, value_metadata)
                 VALUES ('delete', old.rowid, old.memory_id, old.value_metadata);
             END;
         ''')
 
-        # Populate initial data
-        c.execute('''
-            INSERT INTO memories_fts(memories_fts, rowid, memory_id, value_metadata)
-            SELECT 'delete', rowid, memory_id, value_metadata FROM memories
-        ''')
+        # Initial population
         c.execute('''
             INSERT INTO memories_fts(rowid, memory_id, value_metadata)
             SELECT rowid, memory_id, value_metadata FROM memories WHERE value_metadata IS NOT NULL
         ''')
-        print("Populated initial FTS data for value_metadata")
+        print("Initialized memories_fts full-text index")
 
-    # 2. FTS5 virtual table for justification in recall_log
+    # Justification search
     if not _table_exists(c, "recall_log_fts"):
         c.execute('''
             CREATE VIRTUAL TABLE recall_log_fts USING fts5(
-                request_id,
-                memory_id,
-                justification,
-                content='recall_log',
-                content_rowid='rowid'
+                request_id, memory_id, justification, content='recall_log', content_rowid='rowid'
             )
         ''')
-        print("Created FTS table: recall_log_fts")
-
-        # Sync triggers
         c.execute('''
-            CREATE TRIGGER IF NOT EXISTS recall_insert_fts AFTER INSERT ON recall_log BEGIN
+            CREATE TRIGGER recall_insert_fts AFTER INSERT ON recall_log BEGIN
                 INSERT INTO recall_log_fts(rowid, request_id, memory_id, justification)
                 VALUES (new.rowid, new.request_id, new.memory_id, new.justification);
             END;
         ''')
         c.execute('''
-            CREATE TRIGGER IF NOT EXISTS recall_update_fts AFTER UPDATE ON recall_log BEGIN
+            CREATE TRIGGER recall_update_fts AFTER UPDATE ON recall_log BEGIN
                 INSERT INTO recall_log_fts(recall_log_fts, rowid, request_id, memory_id, justification)
                 VALUES ('delete', old.rowid, old.request_id, old.memory_id, old.justification);
                 INSERT INTO recall_log_fts(rowid, request_id, memory_id, justification)
@@ -164,14 +168,13 @@ def init_db():
             END;
         ''')
 
-        # Populate initial data
         c.execute('''
             INSERT INTO recall_log_fts(rowid, request_id, memory_id, justification)
             SELECT rowid, request_id, memory_id, justification FROM recall_log WHERE justification IS NOT NULL
         ''')
-        print("Populated initial FTS data for justification")
+        print("Initialized recall_log_fts full-text index")
 
-    # --- Default profiles ---
+    # --- Default Encryption Profiles ---
     default_profiles = [
         ("default-passphrase", "AES-256-GCM", "HumanPassphrase", "manual", 0),
         ("static-keyfile", "AES-256-GCM", "KeyFile", "never", 0),
@@ -184,23 +187,19 @@ def init_db():
 
     conn.commit()
     conn.close()
-    print(f"Memory Vault database with full-text search ready at {DB_PATH}")
+    print(f"Memory Vault database fully initialized at {DB_PATH}")
 
 
-# Auto-initialize
+# Auto-initialize on import
 if not os.path.exists(DB_PATH):
     init_db()
 else:
-    init_db()
+    init_db()  # Ensures migrations and indexes are applied
 
 
-# === Helper Functions for Full-Text Search ===
+# === Full-Text Search Helpers (unchanged) ===
 
 def search_memories_metadata(query: str, limit: int = 20) -> list[dict]:
-    """
-    Search value_metadata using full-text search.
-    Returns list of matching memories with memory_id and snippet.
-    """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''
@@ -217,16 +216,13 @@ def search_memories_metadata(query: str, limit: int = 20) -> list[dict]:
 
 
 def search_recall_justifications(query: str, limit: int = 20) -> list[dict]:
-    """
-    Search justification field in recall_log.
-    """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''
         SELECT rl.request_id, rl.memory_id, rl.timestamp, rl.approved, snippet(recall_log_fts, 2) AS preview
-        FROM recall_log_fts rl_fts
-        JOIN recall_log rl ON rl.request_id = rl_fts.request_id
-        WHERE rl_fts.justification MATCH ?
+        FROM recall_log_fts
+        JOIN recall_log rl ON rl.request_id = recall_log_fts.request_id
+        WHERE recall_log_fts.justification MATCH ?
         ORDER BY rl.timestamp DESC
         LIMIT ?
     ''', (query, limit))
