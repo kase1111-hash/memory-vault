@@ -44,6 +44,14 @@ def init_db():
         )
     ''')
     # Default profile
+    # ... existing init_db ...
+
+    # Insert default profiles if not exist
+    default_profiles = [
+        ("default-passphrase", "AES-256-GCM", "HumanPassphrase", "manual", 0),
+        ("static-keyfile", "AES-256-GCM", "KeyFile", "never", 0),
+    ]
+    c.executemany('INSERT OR IGNORE INTO encryption_profiles VALUES (?, ?, ?, ?, ?)', default_profiles)
     c.execute('INSERT OR IGNORE INTO encryption_profiles VALUES (?, ?, ?, ?, ?)',
               ("default-passphrase", "AES-256-GCM", "HumanPassphrase", "manual", 0))
     conn.commit()
