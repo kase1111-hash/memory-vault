@@ -1,10 +1,10 @@
 memory-vault/
 ├── __init__.py
-├── vault.py          # Main Vault class (write/recall entrypoints)
-├── db.py             # SQLite setup, metadata tables
-├── crypto.py         # Encryption profiles, encrypt/decrypt
-├── models.py         # Dataclasses for schemas
-├── boundary.py       # Integration stub with boundary-daemon
-├── utils.py          # Hashing, timestamps, etc.
-├── config.py         # Default profiles, paths
-└── main.py           # CLI for testing
+├── vault.py          # Updated with boundary check in recall
+├── db.py             # Unchanged
+├── crypto.py         # Unchanged
+├── models.py         # Unchanged
+├── boundary.py       # NEW: Socket integration with boundary-daemon
+├── utils.py          # Unchanged (stub if needed)
+├── config.py         # Unchanged (add SOCKET_PATH here later)
+└── main.py           # Unchanged
