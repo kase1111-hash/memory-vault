@@ -1,89 +1,93 @@
 # memory_vault/crypto.py
 
-import os
-from nacl.secret import SecretBox
-from nacl.utils import random
-from nacl.pwhash import argon2id
-from nacl.pwhash.argon2id import SALTBYTES, OPSLIMIT_SENSITIVE, MEMLIMIT_SENSITIVE
+# ... existing imports ...
+from typing import Optional
 
-# Constants
-KEY_SIZE = SecretBox.KEY_SIZE          # 32 bytes
-NONCE_SIZE = SecretBox.NONCE_SIZE      # 24 bytes
+# New optional import for TPM support
+try:
+    from tpm2_pytss import TPM2, ESYS_TR, TPM2_TPMU_PUBLIC_PARMS, TPM2_ALG_ERROR
+    from tpm2_pytss.policy import Policy
+    _TPM_AVAILABLE = True
+except ImportError:
+    _TPM_AVAILABLE = False
 
+def ensure_tpm_available():
+    if not _TPM_AVAILABLE:
+        raise RuntimeError("TPM support not available: tpm2-pytss library not installed")
 
-def derive_key_from_passphrase(passphrase: str, salt: bytes = None) -> tuple[bytes, bytes]:
+# TPM persistent handle for our primary key (fixed for simplicity)
+TPM_PERSISTENT_HANDLE = 0x81000001
+
+def tpm_create_and_persist_primary() -> None:
     """
-    Derive a cryptographic key from a human passphrase using Argon2id.
-    If salt is None, generates a new random salt.
-    Returns (key, salt)
+    Create and persist a primary key in the TPM if not already present.
+    Uses default SRK template (ECC or RSA depending on TPM).
     """
-    if salt is None:
-        salt = random(SALTBYTES)
+    ensure_tpm_available()
+    from tpm2_pytss import ESAPI
 
-    key = argon2id.kdf(
-        size=KEY_SIZE,
-        password=passphrase.encode('utf-8'),
-        salt=salt,
-        opslimit=OPSLIMIT_SENSITIVE,
-        memlimit=MEMLIMIT_SENSITIVE
-    )
-    return key, salt
+    with ESAPI() as esys:
+        try:
+            # Try to load existing
+            esys.ReadPublic(ESYS_TR.from_int(TPM_PERSISTENT_HANDLE))
+            print("TPM primary key already exists.")
+            return
+        except TPM2_ALG_ERROR:
+            pass  # Not found
 
+        # Create primary (default template)
+        primary_handle, _, _, _, _ = esys.CreatePrimary(
+            ESYS_TR.OWNER_HIERARCHY,
+            b"",  # No auth
+            sensitive=None,
+            public=None,  # Use default
+            outside_info=b"",
+            creation_pcr=[],
+            persistent_handle=TPM_PERSISTENT_HANDLE
+        )
+        esys.FlushContext(primary_handle)
+        print("TPM primary key created and persisted.")
 
-def load_key_from_file(keyfile_path: str) -> bytes:
+def tpm_generate_sealed_key() -> bytes:
     """
-    Load a raw encryption key from a file.
-    Ensures the key is exactly KEY_SIZE bytes.
+    Generate a new symmetric key and seal it inside the TPM under PCR 0-7.
+    Returns the sealed blob (to store in DB).
     """
-    if not os.path.exists(keyfile_path):
-        raise FileNotFoundError(f"Keyfile not found: {keyfile_path}")
-
-    with open(keyfile_path, "rb") as f:
-        key = f.read()
-
-    key = key.strip()  # Remove any whitespace/newlines
-    if len(key) != KEY_SIZE:
-        raise ValueError(f"Keyfile must contain exactly {KEY_SIZE} bytes (got {len(key)})")
-
-    return key
-
-
-def generate_keyfile(profile_id: str, directory: str = "~/.memory_vault/keys") -> str:
-    """
-    Generate a new random 32-byte key and securely save it to a file.
-    Creates directory if needed and sets permissions to 0600.
-    Returns the full path to the created keyfile.
-    """
-    directory = os.path.expanduser(directory)
-    os.makedirs(directory, exist_ok=True)
-    keyfile_path = os.path.join(directory, f"{profile_id}.key")
+    ensure_tpm_available()
+    from tpm2_pytss import ESAPI, TPM2B_DATA, TPM2B_ENCRYPTED_SECRET
 
     key = random(KEY_SIZE)
 
-    with open(keyfile_path, "wb") as f:
-        os.fchmod(f.fileno(), 0o600)  # Secure permissions before writing
-        f.write(key)
+    with ESAPI() as esys:
+        # Policy: PCR 0-7 must match current boot state
+        policy = Policy()
+        policy.pcr(0, 7)  # PCRs 0-7
 
-    return keyfile_path
+        sealed_handle, _, _ = esys.CreateLoaded(
+            TPM_PERSISTENT_HANDLE,
+            b"",
+            sensitive=TPM2B_DATA(key),
+            public=None,
+            policy=policy.digest
+        )
+        sealed_blob = esys.ReadPublic(sealed_handle)[1]  # public area contains sealed data
+        esys.FlushContext(sealed_handle)
 
+    return sealed_blob
 
-def encrypt_memory(key: bytes, plaintext: bytes) -> tuple[bytes, bytes]:
+def tpm_unseal_key(sealed_blob: bytes) -> bytes:
     """
-    Encrypt plaintext using AES-256-GCM (via libsodium SecretBox).
-    Returns (ciphertext, nonce) — nonce is stored separately.
+    Unseal a previously sealed key blob from the TPM.
+    Fails if PCRs don't match (i.e., boot state changed).
     """
-    box = SecretBox(key)
-    nonce = random(NONCE_SIZE)
-    encrypted = box.encrypt(plaintext, nonce)
-    ciphertext = encrypted[len(nonce):]  # Remove nonce from ciphertext
-    return ciphertext, nonce
+    ensure_tpm_available()
+    from tpm2_pytss import ESAPI
 
-
-def decrypt_memory(key: bytes, ciphertext: bytes, nonce: bytes) -> bytes:
-    """
-    Decrypt ciphertext using the provided key and nonce.
-    Reconstructs full encrypted message before decryption.
-    """
-    box = SecretBox(key)
-    full_ciphertext = nonce + ciphertext
-    return box.decrypt(full_ciphertext)
+    with ESAPI() as esys:
+        # Load the sealed object
+        handle, _, _ = esys.Load(TPM_PERSISTENT_HANDLE, b"", sealed_blob)
+        try:
+            unsealed = esys.Unseal(handle)
+            return bytes(unsealed)
+        finally:
+            esys.FlushContext(handle)
