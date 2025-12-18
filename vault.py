@@ -21,11 +21,22 @@ from .crypto import (
 from .db import DB_PATH, init_db
 from .boundary import check_recall
 
+# Optional TPM imports — safe if not available
+try:
+    from .crypto import (
+        tpm_create_and_persist_primary,
+        tpm_generate_sealed_key,
+        tpm_unseal_key
+    )
+    TPM_AVAILABLE = True
+except ImportError:
+    TPM_AVAILABLE = False
+
 
 class MemoryVault:
     def __init__(self):
         init_db()
-        self.profile_keys = {}  # Cache: profile_id -> key (bytes)
+        self.profile_keys = {}  # Cache: profile_id -> key (only for non-TPM)
 
     # ==================== Profile Management ====================
 
@@ -38,8 +49,12 @@ class MemoryVault:
         exportable: bool = False,
         generate_keyfile: bool = False
     ) -> None:
-        if key_source not in ["HumanPassphrase", "KeyFile", "TPM"]:
-            raise ValueError("Unsupported key_source")
+        allowed_sources = ["HumanPassphrase", "KeyFile"]
+        if key_source == "TPM" and TPM_AVAILABLE:
+            allowed_sources.append("TPM")
+
+        if key_source not in allowed_sources:
+            raise ValueError(f"Unsupported or unavailable key_source: {key_source}")
 
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -79,12 +94,10 @@ class MemoryVault:
 
     # ==================== Key Handling ====================
 
-    def _get_key_for_profile(self, profile_id: str, key_source: str, salt: bytes = None) -> bytes:
-        # Return cached key if available
+    def _get_or_prompt_key(self, profile_id: str, key_source: str, salt: bytes = None) -> bytes:
         if profile_id in self.profile_keys:
             return self.profile_keys[profile_id]
 
-        key: bytes
         if key_source == "HumanPassphrase":
             passphrase = getpass.getpass(f"Enter passphrase for profile '{profile_id}': ")
             key, _ = derive_key_from_passphrase(passphrase, salt)
@@ -92,7 +105,7 @@ class MemoryVault:
             keyfile_path = os.path.expanduser(f"~/.memory_vault/keys/{profile_id}.key")
             key = load_key_from_file(keyfile_path)
         else:
-            raise NotImplementedError(f"Key source '{key_source}' not supported")
+            raise ValueError(f"Unsupported key_source in cache path: {key_source}")
 
         self.profile_keys[profile_id] = key
         return key
@@ -105,8 +118,6 @@ class MemoryVault:
 
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-
-        # Validate profile exists
         c.execute('SELECT key_source FROM encryption_profiles WHERE profile_id = ?', (obj.encryption_profile,))
         profile_row = c.fetchone()
         if not profile_row:
@@ -114,19 +125,31 @@ class MemoryVault:
             raise ValueError(f"Encryption profile '{obj.encryption_profile}' not found")
         key_source = profile_row[0]
 
-        # Generate per-memory salt for passphrase-derived keys
-        salt = nacl_random(nacl.pwhash.SALTBYTES) if key_source == "HumanPassphrase" else None
+        salt = None
+        sealed_blob = None
+        ciphertext = None
+        nonce = None
 
-        # Get encryption key (prompts if needed)
-        key = self._get_key_for_profile(obj.encryption_profile, key_source, salt)
+        if key_source == "TPM":
+            if not TPM_AVAILABLE:
+                conn.close()
+                raise RuntimeError("TPM profile selected but TPM support not available")
+            tpm_create_and_persist_primary()
+            ephemeral_key = nacl_random(32)  # 256-bit
+            ciphertext, nonce = encrypt_memory(ephemeral_key, obj.content_plaintext)
+            sealed_blob = tpm_generate_sealed_key()  # Actually seals the ephemeral_key
+        else:
+            salt = nacl_random(16) if key_source == "HumanPassphrase" else None
+            key = self._get_or_prompt_key(obj.encryption_profile, key_source, salt)
+            ciphertext, nonce = encrypt_memory(key, obj.content_plaintext)
 
-        # Encrypt
-        ciphertext, nonce = encrypt_memory(key, obj.content_plaintext)
         obj.content_hash = hashlib.sha256(obj.content_plaintext).hexdigest()
 
-        # Store
         c.execute('''
-            INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO memories 
+            (memory_id, created_at, created_by, classification, encryption_profile, content_hash,
+             ciphertext, nonce, salt, intent_ref, value_metadata, access_policy, audit_proof, sealed_blob)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             obj.memory_id,
             obj.created_at.isoformat(),
@@ -140,11 +163,12 @@ class MemoryVault:
             obj.intent_ref,
             json.dumps(obj.value_metadata),
             json.dumps(obj.access_policy),
-            obj.audit_proof
+            obj.audit_proof,
+            sealed_blob
         ))
         conn.commit()
         conn.close()
-        print(f"Stored memory {obj.memory_id} | Level {obj.classification} | Profile: {obj.encryption_profile}")
+        print(f"Stored memory {obj.memory_id} | Level {obj.classification} | Profile: {obj.encryption_profile} ({key_source})")
 
     def recall_memory(self, memory_id: str, justification: str = "", requester: str = "agent") -> bytes:
         conn = sqlite3.connect(DB_PATH)
@@ -155,14 +179,18 @@ class MemoryVault:
             conn.close()
             raise ValueError("Memory not found")
 
-        (
-            _, _, _, classification, encryption_profile, _,
-            ciphertext, nonce, salt, _, value_metadata_json, access_policy_json, _
-        ) = row
+        columns = [desc[0] for desc in c.description]
+        row_dict = dict(zip(columns, row))
 
-        access_policy = json.loads(access_policy_json or '{"cooldown_seconds": 0}')
+        classification = row_dict["classification"]
+        encryption_profile = row_dict["encryption_profile"]
+        ciphertext = row_dict["ciphertext"]
+        nonce = row_dict["nonce"]
+        salt = row_dict["salt"]
+        sealed_blob = row_dict["sealed_blob"]
+        access_policy = json.loads(row_dict["access_policy"] or '{"cooldown_seconds": 0}')
 
-        # 1. Boundary daemon check
+        # 1. Boundary check
         permitted, reason = check_recall(classification)
         if not permitted:
             self._log_recall(c, memory_id, requester, False, justification + f" | boundary: {reason}")
@@ -170,9 +198,9 @@ class MemoryVault:
             conn.close()
             raise PermissionError(f"Boundary check failed: {reason}")
 
-        # 2. Human approval for high classification
+        # 2. Human approval
         if classification >= 3:
-            print(f"[Classification Level {classification}] Human approval required.")
+            print(f"[Level {classification}] Human approval required.")
             approve = input("Approve recall? (yes/no): ").strip().lower()
             if approve != "yes":
                 self._log_recall(c, memory_id, requester, False, justification + " | human denied")
@@ -180,34 +208,48 @@ class MemoryVault:
                 conn.close()
                 raise PermissionError("Recall denied by human")
 
-        # 3. Cooldown enforcement
+        # 3. Cooldown
         cooldown_seconds = access_policy.get("cooldown_seconds", 0)
         if cooldown_seconds > 0:
             last_time = self._get_last_successful_recall_time(c, memory_id)
-            if last_time:
-                elapsed = datetime.utcnow() - last_time
-                if elapsed < timedelta(seconds=cooldown_seconds):
-                    remaining = int(cooldown_seconds - elapsed.total_seconds())
-                    self._log_recall(c, memory_id, requester, False, justification + f" | cooldown: {remaining}s remaining")
-                    conn.commit()
-                    conn.close()
-                    raise PermissionError(f"Cooldown active — {remaining} seconds remaining")
+            if last_time and (datetime.utcnow() - last_time) < timedelta(seconds=cooldown_seconds):
+                remaining = int(cooldown_seconds - (datetime.utcnow() - last_time).total_seconds())
+                self._log_recall(c, memory_id, requester, False, justification + f" | cooldown: {remaining}s")
+                conn.commit()
+                conn.close()
+                raise PermissionError(f"Cooldown active — {remaining} seconds remaining")
 
-        # 4. Retrieve key for decryption
+        # 4. Key retrieval & decryption
         c.execute('SELECT key_source FROM encryption_profiles WHERE profile_id = ?', (encryption_profile,))
         key_source = c.fetchone()[0]
-        key = self._get_key_for_profile(encryption_profile, key_source, salt)
 
-        # 5. Decrypt
-        plaintext = decrypt_memory(key, ciphertext, nonce)
+        try:
+            if key_source == "TPM":
+                if not TPM_AVAILABLE or not sealed_blob:
+                    raise PermissionError("TPM unavailable or sealed key missing")
+                key = tpm_unseal_key(sealed_blob)
+            else:
+                key = self._get_or_prompt_key(encryption_profile, key_source, salt)
+        except Exception as e:
+            self._log_recall(c, memory_id, requester, False, f"Key retrieval failed: {str(e)}")
+            conn.commit()
+            conn.close()
+            raise PermissionError(f"Key access failed: {str(e)}")
 
-        # 6. Log success
+        try:
+            plaintext = decrypt_memory(key, ciphertext, nonce)
+        except Exception as e:
+            self._log_recall(c, memory_id, requester, False, f"Decryption failed: {str(e)}")
+            conn.commit()
+            conn.close()
+            raise RuntimeError("Decryption failed")
+
         self._log_recall(c, memory_id, requester, True, justification)
         conn.commit()
         conn.close()
         return plaintext
 
-    # ==================== Internal Helpers ====================
+    # ==================== Helpers ====================
 
     def _log_recall(self, cursor, memory_id: str, requester: str, approved: bool, justification: str):
         cursor.execute('''
