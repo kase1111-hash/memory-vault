@@ -10,26 +10,26 @@ os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 
 def _index_exists(c: sqlite3.Cursor, index_name: str) -> bool:
-    c.execute("SELECT name FROM sqlite_master WHERE TYPE='index' AND name=?", (index_name,))
+    c.execute("SELECT name FROM sqlite_master WHERE type='index' AND name=?", (index_name,))
     return c.fetchone() is not None
 
 
 def _table_exists(c: sqlite3.Cursor, table_name: str) -> bool:
-    c.execute("SELECT name FROM sqlite_master WHERE TYPE='table' AND name=?", (table_name,))
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,))
     return c.fetchone() is not None
 
 
 def init_db():
     """
-    Initialize the SQLite database with all tables, indexes, FTS virtual tables,
-    and backup tracking. All operations are idempotent.
+    Initialize the SQLite database with all required tables, indexes,
+    full-text search virtual tables, and tamper-evidence structures.
+    All operations are idempotent.
     """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
     # --- Core Tables ---
 
-    # Encryption profiles
     c.execute('''
         CREATE TABLE IF NOT EXISTS encryption_profiles (
             profile_id TEXT PRIMARY KEY,
@@ -40,7 +40,6 @@ def init_db():
         )
     ''')
 
-    # Memories (cognitive artifacts)
     c.execute('''
         CREATE TABLE IF NOT EXISTS memories (
             memory_id TEXT PRIMARY KEY,
@@ -53,15 +52,14 @@ def init_db():
             nonce BLOB NOT NULL,
             salt BLOB,
             intent_ref TEXT,
-            value_metadata TEXT,              -- JSON string, FTS indexed
-            access_policy TEXT,               -- JSON string
-            audit_proof TEXT,
-            sealed_blob BLOB,                 -- TPM-sealed keys
+            value_metadata TEXT,
+            access_policy TEXT,
+            audit_proof TEXT,                 -- JSON list of Merkle sibling hashes
+            sealed_blob BLOB,
             FOREIGN KEY (encryption_profile) REFERENCES encryption_profiles (profile_id)
         )
     ''')
 
-    # Recall audit log
     c.execute('''
         CREATE TABLE IF NOT EXISTS recall_log (
             request_id TEXT PRIMARY KEY,
@@ -69,29 +67,51 @@ def init_db():
             requester TEXT NOT NULL,
             timestamp TEXT NOT NULL,
             approved INTEGER NOT NULL,
-            justification TEXT,               -- FTS indexed
+            justification TEXT,
             FOREIGN KEY (memory_id) REFERENCES memories (memory_id)
         )
     ''')
 
-    # Backup tracking for incremental backups
     c.execute('''
         CREATE TABLE IF NOT EXISTS backups (
             backup_id TEXT PRIMARY KEY,
             timestamp TEXT NOT NULL,
-            type TEXT NOT NULL,               -- 'full' or 'incremental'
-            parent_backup_id TEXT,            -- NULL for full backups
+            type TEXT NOT NULL,
+            parent_backup_id TEXT,
             memory_count INTEGER NOT NULL,
             description TEXT
         )
     ''')
 
-    # --- Safe Column Migrations ---
+    # --- Merkle Tree for Tamper Evidence ---
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS merkle_leaves (
+            leaf_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_id TEXT NOT NULL UNIQUE,
+            leaf_hash TEXT NOT NULL,
+            FOREIGN KEY (request_id) REFERENCES recall_log (request_id)
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS merkle_roots (
+            seq INTEGER PRIMARY KEY,
+            root_hash TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            leaf_count INTEGER NOT NULL,
+            signature TEXT NOT NULL   -- Base64 Ed25519 signature over seq|root|timestamp
+        )
+    ''')
+
+    # --- Safe Migrations ---
     c.execute("PRAGMA table_info(memories)")
     columns = [col[1] for col in c.fetchall()]
     if 'sealed_blob' not in columns:
         c.execute("ALTER TABLE memories ADD COLUMN sealed_blob BLOB")
-        print("Added 'sealed_blob' column to memories")
+        print("Added 'sealed_blob' column")
+    if 'audit_proof' not in columns:
+        c.execute("ALTER TABLE memories ADD COLUMN audit_proof TEXT")
+        print("Added 'audit_proof' column")
 
     # --- Performance Indexes ---
     indexes = [
@@ -102,22 +122,21 @@ def init_db():
         ("idx_recall_log_timestamp", "CREATE INDEX idx_recall_log_timestamp ON recall_log (timestamp)"),
         ("idx_recall_log_approved", "CREATE INDEX idx_recall_log_approved ON recall_log (approved)"),
         ("idx_recall_log_requester", "CREATE INDEX idx_recall_log_requester ON recall_log (requester)"),
+        ("idx_merkle_leaves_request_id", "CREATE UNIQUE INDEX idx_merkle_leaves_request_id ON merkle_leaves (request_id)"),
     ]
     for name, sql in indexes:
         if not _index_exists(c, name):
             c.execute(sql)
             print(f"Created index: {name}")
 
-    # --- Full-Text Search Virtual Tables ---
+    # --- Full-Text Search (FTS5) ---
 
-    # Metadata search
     if not _table_exists(c, "memories_fts"):
         c.execute('''
             CREATE VIRTUAL TABLE memories_fts USING fts5(
                 memory_id, value_metadata, content='memories', content_rowid='rowid'
             )
         ''')
-        # Triggers
         c.execute('''
             CREATE TRIGGER memories_insert_fts AFTER INSERT ON memories BEGIN
                 INSERT INTO memories_fts(rowid, memory_id, value_metadata)
@@ -139,14 +158,12 @@ def init_db():
             END;
         ''')
 
-        # Initial population
         c.execute('''
             INSERT INTO memories_fts(rowid, memory_id, value_metadata)
             SELECT rowid, memory_id, value_metadata FROM memories WHERE value_metadata IS NOT NULL
         ''')
-        print("Initialized memories_fts full-text index")
+        print("Initialized memories_fts")
 
-    # Justification search
     if not _table_exists(c, "recall_log_fts"):
         c.execute('''
             CREATE VIRTUAL TABLE recall_log_fts USING fts5(
@@ -172,9 +189,9 @@ def init_db():
             INSERT INTO recall_log_fts(rowid, request_id, memory_id, justification)
             SELECT rowid, request_id, memory_id, justification FROM recall_log WHERE justification IS NOT NULL
         ''')
-        print("Initialized recall_log_fts full-text index")
+        print("Initialized recall_log_fts")
 
-    # --- Default Encryption Profiles ---
+    # --- Default Profiles ---
     default_profiles = [
         ("default-passphrase", "AES-256-GCM", "HumanPassphrase", "manual", 0),
         ("static-keyfile", "AES-256-GCM", "KeyFile", "never", 0),
@@ -187,17 +204,17 @@ def init_db():
 
     conn.commit()
     conn.close()
-    print(f"Memory Vault database fully initialized at {DB_PATH}")
+    print(f"Memory Vault database initialized at {DB_PATH}")
 
 
-# Auto-initialize on import
+# Auto-initialize
 if not os.path.exists(DB_PATH):
     init_db()
 else:
-    init_db()  # Ensures migrations and indexes are applied
+    init_db()
 
 
-# === Full-Text Search Helpers (unchanged) ===
+# === Full-Text Search Helpers ===
 
 def search_memories_metadata(query: str, limit: int = 20) -> list[dict]:
     conn = sqlite3.connect(DB_PATH)
