@@ -91,3 +91,64 @@ def tpm_unseal_key(sealed_blob: bytes) -> bytes:
             return bytes(unsealed)
         finally:
             esys.FlushContext(handle)
+            # memory_vault/crypto.py (add at bottom)
+
+from nacl.signing import SigningKey, VerifyKey
+from nacl.encoding import HexEncoder
+import base64
+
+SIGNING_KEY_PATH = os.path.expanduser("~/.memory_vault/signing_key")
+
+def generate_signing_keypair() -> tuple[bytes, bytes]:
+    """Generate Ed25519 keypair."""
+    sk = SigningKey.generate()
+    return sk.encode(), sk.verify_key.encode()
+
+def load_or_create_signing_key(tpm_preferred: bool = True) -> SigningKey:
+    """Load or create signing key, prefer TPM sealing if available."""
+    if TPM_AVAILABLE:
+        try:
+            # Try to seal signing key in TPM
+            sealed = tpm_load_sealed_signing_key()
+            if sealed:
+                return SigningKey(sealed)
+        except:
+            pass  # Fall back to file
+
+    # File-based fallback
+    if os.path.exists(SIGNING_KEY_PATH):
+        with open(SIGNING_KEY_PATH, "rb") as f:
+            sk_bytes = f.read()
+        return SigningKey(sk_bytes)
+
+    print("Generating new signing keypair (file-based)")
+    sk_bytes, vk_bytes = generate_signing_keypair()
+    os.makedirs(os.path.dirname(SIGNING_KEY_PATH), exist_ok=True)
+    with open(SIGNING_KEY_PATH, "wb") as f:
+        os.chmod(SIGNING_KEY_PATH, 0o600)
+        f.write(sk_bytes)
+    with open(SIGNING_KEY_PATH + ".pub", "wb") as f:
+        f.write(vk_bytes)
+    return SigningKey(sk_bytes)
+
+def get_public_verify_key() -> VerifyKey:
+    pub_path = SIGNING_KEY_PATH + ".pub"
+    if os.path.exists(pub_path):
+        with open(pub_path, "rb") as f:
+            return VerifyKey(f.read())
+    # For TPM, would export attestation public key (future)
+    raise FileNotFoundError("Public key not found. Run vault once to generate.")
+
+def sign_root(signing_key: SigningKey, root_hash: str, seq: int, timestamp: str) -> str:
+    message = f"{seq}|{root_hash}|{timestamp}".encode()
+    signed = signing_key.sign(message)
+    return base64.b64encode(signed.signature).decode()
+
+def verify_signature(vk: VerifyKey, signature_b64: str, root_hash: str, seq: int, timestamp: str) -> bool:
+    try:
+        sig = base64.b64decode(signature_b64)
+        message = f"{seq}|{root_hash}|{timestamp}".encode()
+        vk.verify(message, sig)
+        return True
+    except:
+        return False
