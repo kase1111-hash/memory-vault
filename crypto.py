@@ -78,23 +78,172 @@ def decrypt_memory(key: bytes, ciphertext: bytes, nonce: bytes) -> bytes:
 
 # === TPM-Sealed Memory Keys (Optional) ===
 
+TPM_PRIMARY_HANDLE = 0x81000001  # Persistent handle for primary key
+
+
 def tpm_create_and_persist_primary() -> None:
+    """
+    Create and persist a primary TPM key for sealing operations.
+    This key is bound to PCRs 0-7 (platform + bootloader state).
+    """
     if not TPM_AVAILABLE:
         return
-    # Implementation as previously defined...
-    pass  # (keep your existing TPM memory sealing functions if any)
+
+    try:
+        from tpm2_pytss import ESAPI, TPM2_ALG, ESYS_TR
+        from tpm2_pytss.types import TPMT_PUBLIC, TPMS_PCR_SELECTION
+
+        with ESAPI() as esys:
+            # Check if primary already exists
+            try:
+                esys.ReadPublic(TPM_PRIMARY_HANDLE)
+                # Already exists
+                return
+            except:
+                pass  # Doesn't exist, create it
+
+            # Create primary key with platform hierarchy
+            in_public = TPMT_PUBLIC(
+                type=TPM2_ALG.RSA,
+                nameAlg=TPM2_ALG.SHA256,
+                objectAttributes=(
+                    "fixedtpm|fixedparent|sensitivedataorigin|"
+                    "userwithauth|restricted|decrypt"
+                ),
+            )
+
+            # Create the primary key
+            primary_handle, _, _, _, _ = esys.CreatePrimary(
+                primaryHandle=ESYS_TR.OWNER,
+                inSensitive=None,
+                inPublic=in_public,
+            )
+
+            # Persist it
+            esys.EvictControl(
+                auth=ESYS_TR.OWNER,
+                objectHandle=primary_handle,
+                persistentHandle=TPM_PRIMARY_HANDLE,
+            )
+
+            esys.FlushContext(primary_handle)
+            print(f"TPM primary key created at handle {hex(TPM_PRIMARY_HANDLE)}")
+
+    except Exception as e:
+        print(f"TPM primary creation failed: {e}")
+
 
 def tpm_generate_sealed_key() -> bytes:
+    """
+    Generate a random 32-byte key and seal it to TPM PCRs 0-7.
+    Returns the sealed blob that can only be unsealed on this platform.
+    """
     if not TPM_AVAILABLE:
         raise RuntimeError("TPM not available")
-    # Your existing sealed key generation...
-    pass
+
+    try:
+        from tpm2_pytss import ESAPI, TPM2_ALG, ESYS_TR
+        from tpm2_pytss.types import TPMT_PUBLIC, TPM2B_SENSITIVE_CREATE
+
+        # Generate random key
+        ephemeral_key = random(32)
+
+        with ESAPI() as esys:
+            # Create sealed data object bound to PCRs 0-7
+            pcr_selection = esys.hash_to_pcr_selection(TPM2_ALG.SHA256, list(range(8)))
+
+            # Start policy session for PCR binding
+            session = esys.StartAuthSession(
+                tpmKey=ESYS_TR.NONE,
+                bind=ESYS_TR.NONE,
+                sessionType=TPM2_ALG.POLICY,
+                symmetric=TPM2_ALG.NULL,
+                authHash=TPM2_ALG.SHA256,
+            )
+
+            # Set policy PCR
+            esys.PolicyPCR(session, None, pcr_selection)
+            policy_digest = esys.PolicyGetDigest(session)
+
+            # Define sealed object
+            in_public = TPMT_PUBLIC(
+                type=TPM2_ALG.KEYEDHASH,
+                nameAlg=TPM2_ALG.SHA256,
+                objectAttributes="fixedtpm|fixedparent|userwithauth",
+                authPolicy=policy_digest,
+            )
+
+            in_sensitive = TPM2B_SENSITIVE_CREATE(
+                data=ephemeral_key,
+            )
+
+            # Create sealed object
+            private, public = esys.Create(
+                parentHandle=TPM_PRIMARY_HANDLE,
+                inSensitive=in_sensitive,
+                inPublic=in_public,
+            )[:2]
+
+            esys.FlushContext(session)
+
+            # Serialize and return
+            sealed_blob = {
+                "private": private.marshal(),
+                "public": public.marshal(),
+            }
+            import pickle
+            return pickle.dumps(sealed_blob)
+
+    except Exception as e:
+        raise RuntimeError(f"TPM key sealing failed: {e}")
+
 
 def tpm_unseal_key(sealed_blob: bytes) -> bytes:
+    """
+    Unseal a TPM-sealed key blob.
+    Only works if PCR state matches the sealing state.
+    """
     if not TPM_AVAILABLE:
         raise RuntimeError("TPM not available")
-    # Your existing unsealing...
-    pass
+
+    try:
+        from tpm2_pytss import ESAPI, TPM2_ALG, ESYS_TR
+        import pickle
+
+        # Deserialize blob
+        blob_data = pickle.loads(sealed_blob)
+
+        with ESAPI() as esys:
+            # Load the sealed object
+            sealed_handle = esys.Load(
+                parentHandle=TPM_PRIMARY_HANDLE,
+                inPrivate=blob_data["private"],
+                inPublic=blob_data["public"],
+            )
+
+            # Start policy session for unsealing
+            pcr_selection = esys.hash_to_pcr_selection(TPM2_ALG.SHA256, list(range(8)))
+
+            session = esys.StartAuthSession(
+                tpmKey=ESYS_TR.NONE,
+                bind=ESYS_TR.NONE,
+                sessionType=TPM2_ALG.POLICY,
+                symmetric=TPM2_ALG.NULL,
+                authHash=TPM2_ALG.SHA256,
+            )
+
+            esys.PolicyPCR(session, None, pcr_selection)
+
+            # Unseal the data
+            unsealed = esys.Unseal(sealed_handle, session1=session)
+
+            esys.FlushContext(session)
+            esys.FlushContext(sealed_handle)
+
+            return bytes(unsealed)
+
+    except Exception as e:
+        raise RuntimeError(f"TPM unsealing failed (PCR mismatch or tamper): {e}")
 
 
 # === Optional TPM-Sealed Signing Key ===

@@ -1,157 +1,269 @@
 # Memory Vault
 
-**Secure, Owner-Sovereign, Offline-First Storage for AI Agent Ecosystems**
+**Secure, owner-sovereign, offline-first storage for high-value cognitive artifacts.**
 
-Version: 1.0 (December 17, 2025)
-Author: kase1111-hash with Grok
-Repository: https://github.com/kase1111-hash/memory-vault
+Memory Vault is a cryptographically enforced storage system designed for AI agent ecosystems, providing classification-bound access control, tamper-evident auditing, hardware-bound secrets, and human-in-the-loop controls.
 
-## Overview
+## Features
 
-Memory Vault is a cryptographically enforced storage system designed for high-value cognitive artifacts in AI agent ecosystems. It provides classification-bound access, tamper-evident auditing, hardware-bound secrets, and human-in-the-loop controls.
+- **6-Level Classification System** (0-5): From ephemeral to physically-gated secrets
+- **Multiple Encryption Profiles**: Passphrase, keyfile, or TPM-sealed keys
+- **Boundary Daemon Integration**: Runtime environment checks via Unix socket
+- **Human Approval Gates**: Explicit consent for high-classification recalls
+- **Cooldown Enforcement**: Configurable per-memory access throttling
+- **Full-Text Search**: FTS5 on metadata and recall justifications
+- **Encrypted Backups**: Full + incremental backup chain with tracking
+- **Tamper-Evident Audit Trail**: Merkle tree over all recall events
+- **Signed Merkle Roots**: Ed25519 signatures with optional TPM sealing
+- **Physical Token Support**: Level 5 memories require FIDO2/YubiKey/TOTP
+- **Dead-Man Switch**: Encrypted heir release on owner absence
+- **Hardware-Bound Secrets**: Optional TPM sealing for maximum security
 
-Built on the core principles of Agent-OS:
-- Human sovereignty first
-- Explicit consent for persistence and recall
-- Refusal as security
-- Local-first, airgap-capable design
+## Installation
 
-## Key Features
+```bash
+# Clone the repository
+git clone https://github.com/kase1111-hash/memory-vault.git
+cd memory-vault
 
-| Feature | Description |
-|---------|-------------|
-| Classification Levels (0–5) | 0–2: agent recall; 3–4: human approval + boundary checks; 5: physical token required |
-| Multiple Encryption Profiles | Passphrase, keyfile, optional TPM-sealed keys |
-| Boundary Daemon Integration | Runtime environment checks via Unix socket |
-| Human Approval Gates | Explicit yes/no for high-classification recall |
-| Cooldown Enforcement | Configurable per-memory cooldown periods |
-| Full-Text Search | FTS5 on metadata and recall justifications |
-| Incremental Encrypted Backups | Full + incremental chain with tracking |
-| Tamper-Evident Audit Trail | Merkle tree over recall log |
-| Signed Merkle Roots | Ed25519 signatures with optional TPM-sealed private key |
-| Hardware-Bound Secrets | Optional TPM sealing for memory keys and signing key |
-| Dead-Man Switch | Encrypted release to heirs on trigger |
+# Install core dependencies
+pip install -r requirements.txt
+
+# Optional: Install TPM support (Linux with TPM 2.0)
+pip install tpm2-pytss
+
+# Optional: Install physical token support
+pip install fido2 pyotp
+```
+
+## Quick Start
+
+### 1. Create Encryption Profile
+
+```bash
+# Passphrase-based (default)
+python -m memory_vault.cli create-profile my-profile --key-source HumanPassphrase
+
+# Keyfile-based
+python -m memory_vault.cli create-profile secure-file --key-source KeyFile --generate-keyfile
+
+# TPM-sealed (requires TPM hardware)
+python -m memory_vault.cli create-profile tpm-profile --key-source TPM
+```
+
+### 2. Store a Memory
+
+```bash
+python -m memory_vault.cli store \
+  --content "My secret data" \
+  --classification 2 \
+  --profile my-profile \
+  --cooldown 3600 \
+  --metadata '{"type":"credential","importance":"high"}'
+```
+
+### 3. Recall a Memory
+
+```bash
+python -m memory_vault.cli recall <memory_id> --justification "System recovery"
+```
+
+## Classification Levels
+
+| Level | Name      | Requirements                                    |
+|-------|-----------|-------------------------------------------------|
+| 0     | Ephemeral | None (agent can auto-recall)                    |
+| 1     | Working   | None (agent can auto-recall)                    |
+| 2     | Private   | None (agent can auto-recall)                    |
+| 3     | Sealed    | Human approval + boundary check + cooldown      |
+| 4     | Vaulted   | Human approval + boundary check + offline mode  |
+| 5     | Black     | All above + **physical token** + airgap         |
+
+## Physical Token Setup (Level 5)
+
+### FIDO2/U2F (Recommended)
+
+```bash
+# YubiKey, Nitrokey, OnlyKey - no setup needed
+# Just insert token when prompted
+```
+
+### TOTP (Software Fallback)
+
+```bash
+# Generate TOTP secret
+python -m memory_vault.token setup-totp
+
+# Scan QR code with authenticator app
+```
+
+### Test Token
+
+```bash
+python -m memory_vault.token test
+```
+
+## Backup & Restore
+
+### Create Backup
+
+```bash
+# Full backup
+python -m memory_vault.cli backup full-backup.json --description "Monthly full"
+
+# Incremental backup
+python -m memory_vault.cli backup incr-2025-12.json --incremental --description "December changes"
+
+# List backups
+python -m memory_vault.cli list-backups
+```
+
+### Restore
+
+```bash
+python -m memory_vault.cli restore full-backup.json
+```
+
+## Integrity Verification
+
+```bash
+# Verify entire vault
+python -m memory_vault.cli verify-integrity
+
+# Verify specific memory
+python -m memory_vault.cli verify-integrity --memory-id <id>
+```
+
+## Dead-Man Switch
+
+### Setup Heirs
+
+```bash
+# Add heir with their public key (age/x25519)
+python -m memory_vault.cli dms-heir-add "Alice" age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
+
+# List heirs
+python -m memory_vault.cli dms-heir-list
+```
+
+### Arm Switch
+
+```bash
+# Arm for 180 days with specific memories
+python -m memory_vault.cli dms-arm 180 \
+  --memory-ids "mem-id-1,mem-id-2" \
+  --justification "Succession plan"
+
+# Encrypt payload for heirs
+python -m memory_vault.cli dms-encrypt-payload
+```
+
+### Check-In (Prove Aliveness)
+
+```bash
+python -m memory_vault.cli dms-checkin
+```
+
+### Release (When Triggered)
+
+```bash
+# Check status
+python -m memory_vault.cli dms-status
+
+# Export encrypted packages for heirs
+python -m memory_vault.cli dms-release-packages
+```
+
+## Search
+
+```bash
+# Search metadata
+python -m memory_vault.cli search-metadata "credential OR key"
+
+# Search recall justifications
+python -m memory_vault.cli search-justifications "emergency"
+```
 
 ## Architecture
 
 ```
 memory_vault/
-├── vault.py        # Core API (MemoryVault class)
-├── db.py           # SQLite schema, migrations, FTS, indexes
-├── crypto.py       # All cryptographic operations
-├── merkle.py       # Merkle tree construction & verification
-├── boundary.py     # Integration with boundary-daemon
-├── deadman.py      # Dead-man switch & heir release
-├── models.py       # Dataclasses (MemoryObject, etc.)
-├── cli.py          # Full command-line interface
-└── vault.db        # Local encrypted database (~/.memory_vault/vault.db)
+├── __init__.py       - Package initialization
+├── vault.py          - Core MemoryVault API
+├── db.py             - SQLite schema, migrations, FTS, indexes
+├── crypto.py         - All cryptographic operations
+├── merkle.py         - Merkle tree construction & verification
+├── boundry.py        - Boundary daemon integration
+├── models.py         - Dataclasses (MemoryObject, etc.)
+├── token.py          - Physical token authentication
+├── deadman.py        - Dead-man switch functionality
+└── cli.py            - Command-line interface
 ```
 
 ## Security Model
 
 ### Encryption
-- AES-256-GCM via libsodium (PyNaCl)
-- Per-memory nonce + optional per-memory salt
-- Keys derived with Argon2id (sensitive parameters)
+
+- **AES-256-GCM** via libsodium (PyNaCl)
+- **Per-memory nonce** + optional salt
+- **Argon2id** key derivation (OPSLIMIT_SENSITIVE, MEMLIMIT_SENSITIVE)
 
 ### Key Sources
 
-| Source | Exportable | Hardware-Bound | Notes |
-|--------|------------|----------------|-------|
-| HumanPassphrase | Yes | No | Argon2id derivation |
-| KeyFile | Yes | No | Static pre-shared key |
-| TPM | No | Yes | Sealed to PCRs 0–7 |
+| Source           | Exportable | Hardware-Bound | Notes                    |
+|------------------|------------|----------------|--------------------------|
+| HumanPassphrase  | Yes        | No             | Argon2id derivation      |
+| KeyFile          | Yes        | No             | Static pre-shared key    |
+| TPM              | No         | Yes            | Sealed to PCRs 0-7       |
 
 ### Audit Trail
+
 - Every recall (success/failure) logged
 - Leaf hash = double-SHA256 of log entry
 - Merkle root rebuilt on each log entry
 - Root signed with Ed25519 key
-- Signing key optionally sealed in TPM (non-exportable, PCR-bound)
+- Signing key optionally TPM-sealed (non-exportable, PCR-bound)
 
-## CLI Usage
+## Threat Model
 
-```bash
-# Profile management
-memory-vault create-profile my-tpm-profile --key-source TPM
-memory-vault create-profile secure-file --key-source KeyFile --generate-keyfile
-memory-vault list-profiles
+### Assets Protected
 
-# Store a memory
-memory-vault store \
-  --content "master seed phrase: ..." \
-  --classification 5 \
-  --profile my-tpm-profile \
-  --cooldown 604800 \
-  --metadata '{"type":"seed","purpose":"recovery"}'
+- Proprietary ideas and IP
+- Failed paths (negative knowledge)
+- Intent history
+- Learning heuristics
+- Economic value metadata
 
-# Recall (with gates)
-memory-vault recall <memory_id> --justification "System recovery"
+### Mitigations
 
-# Search
-memory-vault search-metadata "seed OR private key"
-memory-vault search-justifications "emergency"
-
-# Backup
-memory-vault backup full-backup.json --description "Monthly full"
-memory-vault backup incr-2025-12-17.json --incremental
-memory-vault list-backups
-
-# Integrity verification
-memory-vault verify-integrity
-memory-vault verify-integrity --memory-id <id>
-
-# Dead-man switch
-memory-vault dms-arm 180 --memory-ids root-seed-1 --justification "Succession plan"
-memory-vault dms-checkin
-memory-vault dms-heir-add "Alice" age1ql3...
-memory-vault dms-encrypt-payload
-```
-
-## Integrity Verification
-
-The `verify-integrity` command:
-1. Rebuilds the Merkle tree from leaves
-2. Compares with latest stored root
-3. Verifies every root signature using the public key
-4. Optionally verifies proof for a specific memory's latest recall
-
-Tamper detection triggers if:
-- Recall log modified
-- Root hashes altered
-- Signatures invalid
-- TPM PCRs changed (if using TPM-sealed signing key)
-
-## Backup & Restore
-
-- Backups are encrypted with AES-256-GCM (passphrase-derived)
-- Non-exportable memories (e.g., TPM profile) have ciphertext zeroed
-- Incremental backups only include changes since last backup
-- `restore` handles full + incremental chain
+| Threat              | Mitigation                          |
+|---------------------|-------------------------------------|
+| Memory exfiltration | Encryption + air-gap                |
+| Over-recall         | Least recall + contracts            |
+| Model leakage       | No plaintext training reuse         |
+| Key theft           | Hardware-bound keys (TPM)           |
+| Coercive recall     | Cooldowns + physical tokens         |
+| Silent corruption   | Merkle audits + signatures          |
 
 ## Dependencies
 
-```
-pynacl>=1.5.0
-tpm2-pytss>=0.4.0      # optional, for TPM features
-sqlite3                # stdlib
-fido2                  # optional, for physical token support
-pyotp                  # optional, for TOTP fallback
-```
-
-## Security Considerations
-
-- Never auto-recall level 3+ memories
-- TPM features require trusted platform (no remote attestation yet)
-- Backup passphrases must be strong and stored separately
-- Signing public key should be backed up for long-term verification
-
-## Documentation
-
-- [Specification](./SPECIFICATION.md) - Formal specification and design principles
-- [Integrations](./docs/INTEGRATIONS.md) - Boundary daemon, IntentLog, physical tokens, and heir release
-- [MP-02 Spec](./MP-02-spec.md) - Proof-of-Effort Receipt Protocol
+- `pynacl>=1.5.0` - Core cryptography (required)
+- `tpm2-pytss>=2.1.0` - TPM support (optional, Linux only)
+- `fido2>=1.1.0` - FIDO2/U2F tokens (optional)
+- `pyotp>=2.8.0` - TOTP/HOTP fallback (optional)
 
 ## License
 
-See [LICENSE](./LICENSE) file.
+See LICENSE file.
+
+## Author
+
+**kase1111-hash**
+
+Built with principles from Agent-OS: Human sovereignty, explicit consent, refusal as security, local-first design.
+
+---
+
+**Memory as capital, not cache.**
+
+The vault enforces restraint. A system that remembers everything becomes dangerous. The Memory Vault exists to prevent that.

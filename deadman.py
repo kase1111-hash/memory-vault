@@ -203,10 +203,10 @@ def encrypt_payload_for_heirs(vault) -> None:
         box = SealedBox(pubkey)
         encrypted = box.encrypt(payload_json)
         c.execute('''
-            UPDATE dms_heirs 
-            SET encrypted_payload = ?, memory_ids = ? 
+            UPDATE dms_heirs
+            SET encrypted_payload = ?, memory_ids = ?
             WHERE heir_id = ?
-        "''', (encrypted, json.dumps(memory_ids), heir_id))
+        ''', (encrypted, json.dumps(memory_ids), heir_id))
         print(f"Encrypted for {name}")
 
     conn.commit()

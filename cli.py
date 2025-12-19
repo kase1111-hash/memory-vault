@@ -128,14 +128,19 @@ def main():
         except json.JSONDecodeError as e:
             print(f"Invalid metadata JSON: {e}")
             sys.exit(1)
-        obj = MemoryObject(
-            memory_id=args.id,
-            content_plaintext=args.content.encode(),
-            classification=args.classification,
-            encryption_profile=args.profile,
-            access_policy={"cooldown_seconds": args.cooldown},
-            value_metadata=metadata
-        )
+
+        # Build kwargs, only include memory_id if provided
+        obj_kwargs = {
+            "content_plaintext": args.content.encode(),
+            "classification": args.classification,
+            "encryption_profile": args.profile,
+            "access_policy": {"cooldown_seconds": args.cooldown},
+            "value_metadata": metadata
+        }
+        if args.id:
+            obj_kwargs["memory_id"] = args.id
+
+        obj = MemoryObject(**obj_kwargs)
         vault.store_memory(obj)
 
     elif args.command == "recall":
@@ -159,7 +164,43 @@ def main():
             ts = datetime.fromisoformat(r['timestamp'].rstrip("Z") + "+00:00").strftime("%Y-%m-%d %H:%M")
             print(f"{ts} | {status} | {r['memory_id']}: {r['preview']}\n")
 
-    # Backup/restore and verify-integrity commands remain as previously implemented...
+    elif args.command == "backup":
+        passphrase = get_passphrase("Backup encryption passphrase: ") if not getattr(args, "passphrase_file", None) else None
+        try:
+            vault.backup(
+                output_file=args.output_file,
+                incremental=args.incremental,
+                description=args.description,
+                passphrase=passphrase
+            )
+        except Exception as e:
+            print(f"Backup failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "list-backups":
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("""
+            SELECT backup_id, timestamp, type, memory_count, description
+            FROM backups
+            ORDER BY timestamp DESC
+        """)
+        print("\n=== Backup History ===\n")
+        for backup_id, timestamp, btype, count, desc in c.fetchall():
+            ts = datetime.fromisoformat(timestamp.rstrip("Z")).strftime("%Y-%m-%d %H:%M")
+            print(f"{ts} | {btype:12} | {count:3} memories | {backup_id}")
+            if desc:
+                print(f"  Description: {desc}")
+            print()
+        conn.close()
+
+    elif args.command == "verify-integrity":
+        try:
+            result = vault.verify_integrity(memory_id=args.memory_id if hasattr(args, 'memory_id') else None)
+            sys.exit(0 if result else 1)
+        except Exception as e:
+            print(f"Verification failed: {e}")
+            sys.exit(1)
 
     elif args.command == "dms-arm":
         ids = [i.strip() for i in args.memory_ids.split(",")]
