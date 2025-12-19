@@ -302,7 +302,7 @@ if __name__ == "__main__":
     else:
         print("Memory Vault Physical Token Utility")
         print("\nUsage:")
-        print("  python -m memory_vault.token setup-totp   - Setup TOTP token")
-        print("  python -m memory_vault.token setup-hmac   - Setup HMAC token")
-        print("  python -m memory_vault.token test         - Test authentication")
-        print("  python -m memory_vault.token status       - Check token status")
+        print("  python -m memory_vault.physical_token setup-totp   - Setup TOTP token")
+        print("  python -m memory_vault.physical_token setup-hmac   - Setup HMAC token")
+        print("  python -m memory_vault.physical_token test         - Test authentication")
+        print("  python -m memory_vault.physical_token status       - Check token status")

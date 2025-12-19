@@ -208,7 +208,7 @@ class MemoryVault:
 
         # 4. Physical token (Level 5 only)
         if classification == 5:
-            from .token import require_physical_token
+            from .physical_token import require_physical_token
             print(f"\n[Level 5] Physical security token required for recall.")
             if not require_physical_token(justification):
                 self._log_recall(c, memory_id, requester, False, justification + " | token absent")

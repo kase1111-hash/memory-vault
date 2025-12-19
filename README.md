@@ -92,7 +92,7 @@ python -m memory_vault.cli recall <memory_id> --justification "System recovery"
 
 ```bash
 # Generate TOTP secret
-python -m memory_vault.token setup-totp
+python -m memory_vault.physical_token setup-totp
 
 # Scan QR code with authenticator app
 ```
@@ -100,7 +100,7 @@ python -m memory_vault.token setup-totp
 ### Test Token
 
 ```bash
-python -m memory_vault.token test
+python -m memory_vault.physical_token test
 ```
 
 ## Backup & Restore
