@@ -1,8 +1,8 @@
 # Memory Vault Specification
 
-**Version:** 1.1
+**Version:** 1.2
 **Last Updated:** December 19, 2025
-**Status:** Active Development
+**Status:** Production (Core Features Complete)
 
 ---
 
@@ -36,9 +36,9 @@ Every memory object MUST declare a classification at creation.
 | 0 | Ephemeral | Session-only, auto-purged | Partial (no auto-purge) |
 | 1 | Working | Short-term, low sensitivity | Implemented |
 | 2 | Private | Owner-only recall | Implemented |
-| 3 | Sealed | Encrypted, delayed access | Implemented |
-| 4 | Vaulted | Hardware-bound, air-gapped | Implemented |
-| 5 | Black | Exists but unretrievable without owner key + ritual | Partial (token.py missing) |
+| 3 | Sealed | Encrypted, delayed access, human approval | Implemented |
+| 4 | Vaulted | Hardware-bound, air-gapped, boundary check | Implemented |
+| 5 | Black | Physical token + all Level 4 requirements | Implemented |
 
 **Classification is immutable once written.**
 
@@ -140,12 +140,13 @@ Every memory object MUST declare a classification at creation.
 
 | Threat | Mitigation | Status |
 |--------|------------|--------|
-| Memory exfiltration | Encryption + air-gap | Implemented |
-| Over-recall | Least recall + contracts | Implemented |
+| Memory exfiltration | Encryption + air-gap + boundary daemon | Implemented |
+| Over-recall | Least recall + cooldowns + human approval | Implemented |
 | Model leakage | No plaintext training reuse | By design |
-| Key theft | Hardware-bound keys | TPM stubs only |
-| Coercive recall | Cooldowns + rituals | Implemented |
-| Silent corruption | Hashing + Merkle audits | Implemented |
+| Key theft | Hardware-bound keys (TPM sealing) | Code complete, untested |
+| Coercive recall | Cooldowns + physical tokens | Implemented |
+| Silent corruption | Merkle tree + Ed25519 signatures | Implemented |
+| Owner incapacitation | Dead-man switch + heir release | Implemented |
 
 ---
 
@@ -164,11 +165,13 @@ The Vault refuses recall if:
 
 | Feature | Status |
 |---------|--------|
-| Merkle trees over encrypted blobs | Implemented |
-| Zero-knowledge proofs of existence | Not implemented |
+| Merkle trees over recall events | Implemented |
+| Ed25519 signed Merkle roots | Implemented |
+| Full integrity verification CLI | Implemented |
 | Recall logs hashed and chained | Implemented |
+| Zero-knowledge proofs of existence | Not implemented |
 
-Allows proof of creation without revealing content.
+Allows proof of audit trail integrity without revealing memory content.
 
 ---
 
@@ -178,20 +181,31 @@ Allows proof of creation without revealing content.
 
 - Triggered by owner or anomaly
 - All recall disabled
-- **Status:** Not implemented
+- **Status:** Not implemented (see Section 14.1.2 for plan)
 
 ### 9.2 Memory Tombstones
 
-- Memories marked inaccessible but retained
-- **Status:** Not implemented
+- Memories marked inaccessible but retained for audit
+- **Status:** Not implemented (see Section 14.2.1 for plan)
 
 ### 9.3 Owner Death / Transfer
 
 | Feature | Status |
 |---------|--------|
-| Escrowed keys | Not implemented |
 | Dead-man switches | Implemented |
 | Encrypted release to designated heirs | Implemented |
+| Physical token required for arming | Implemented |
+| Escrowed keys (Shamir's Secret Sharing) | Not implemented |
+
+### 9.4 Backup & Recovery
+
+| Feature | Status |
+|---------|--------|
+| Full encrypted backups | Implemented |
+| Incremental backups with chain tracking | Implemented |
+| Passphrase-protected backup files | Implemented |
+| Restore with merge logic | Implemented |
+| Non-exportable profile handling | Implemented (excluded from backup) |
 
 ---
 
@@ -226,7 +240,7 @@ Allows proof of creation without revealing content.
 | Feature | File(s) |
 |---------|---------|
 | Core MemoryVault class (store/recall) | vault.py |
-| Classification enforcement (levels 1-4) | vault.py |
+| Classification enforcement (levels 0-5) | vault.py |
 | Encryption profiles (Passphrase, KeyFile) | vault.py, crypto.py |
 | AES-256-GCM encryption | crypto.py |
 | Argon2id key derivation | crypto.py |
@@ -235,179 +249,323 @@ Allows proof of creation without revealing content.
 | Merkle tree audit trail | merkle.py, vault.py |
 | Ed25519 signed roots | crypto.py, vault.py |
 | Dead-man switch | deadman.py |
-| Heir management | deadman.py |
+| Heir management + encrypted payloads | deadman.py |
 | CLI interface | cli.py |
 | Boundary daemon client | boundry.py |
+| Physical token authentication (Level 5) | token.py |
+| FIDO2/U2F token support | token.py |
+| HMAC challenge-response tokens | token.py |
+| TOTP/HOTP fallback tokens | token.py |
+| Backup (full + incremental) | vault.py, cli.py |
+| Restore from backup | vault.py, cli.py |
+| Integrity verification (Merkle + signatures) | vault.py, cli.py |
 
 ### 13.2 Partially Implemented
 
 | Feature | State | Missing |
 |---------|-------|---------|
-| TPM memory sealing | Stubs exist | Actual TPM API calls |
-| TPM-sealed signing key | Code exists | Testing/validation |
-| Level 5 physical token | Referenced | token.py file |
-| Backup/restore | Schema + CLI | Execution logic |
-| verify-integrity | CLI args | Execution logic |
+| TPM memory sealing | Full code exists | Hardware testing/validation |
+| TPM-sealed signing key | Full code exists | Hardware testing/validation |
+| Level 0 ephemeral | Storage works | Auto-purge on session end |
 
 ### 13.3 Not Implemented
 
-| Feature | Priority |
-|---------|----------|
-| token.py (physical token) | HIGH |
-| verify-integrity execution | HIGH |
-| Backup/restore logic | HIGH |
-| Level 0 auto-purge | MEDIUM |
-| Lockdown mode | MEDIUM |
-| Key rotation logic | MEDIUM |
-| Memory tombstones | LOW |
-| Zero-knowledge proofs | LOW |
-| IntentLog adapter | LOW |
-| MP-02 Proof-of-Effort | FUTURE |
+| Feature | Priority | Description |
+|---------|----------|-------------|
+| Level 0 auto-purge | MEDIUM | Auto-delete ephemeral memories after session |
+| Lockdown mode | MEDIUM | Emergency all-recall-disabled mode |
+| Key rotation logic | MEDIUM | Re-encrypt memories with new profile key |
+| Memory tombstones | LOW | Mark memories inaccessible but retained |
+| Zero-knowledge proofs | LOW | Prove existence without content disclosure |
+| IntentLog adapter | LOW | Bidirectional linking with IntentLog system |
+| Escrowed keys | LOW | Third-party key escrow (vs dead-man switch) |
+| MP-02 Proof-of-Effort | FUTURE | NatLangChain effort receipt integration |
 
 ---
 
 ## 14. Implementation Plans
 
-### 14.1 HIGH PRIORITY
+### 14.1 MEDIUM PRIORITY
 
-#### 14.1.1 token.py - Physical Token Integration
+#### 14.1.1 Level 0 Ephemeral Auto-Purge
 
-**Problem:** deadman.py imports `require_physical_token` from non-existent token.py, causing import errors.
+**Status:** Not Implemented
+
+**Problem:** Level 0 memories are stored but never automatically purged, contradicting the "ephemeral" designation.
 
 **Plan:**
-1. Create token.py with `require_physical_token()` function
-2. Support FIDO2 via `fido2` library (optional)
-3. Support HMAC challenge-response for YubiKey
-4. Support TOTP fallback via `pyotp` (optional)
-5. Graceful fallback when no token libraries installed
-6. Integrate into vault.py for Level 5 recall gate
+1. Add `purge_ephemeral(max_age_hours: int = 24)` method to vault.py
+2. Delete all level 0 memories older than threshold
+3. Call automatically on vault initialization
+4. Add `purge-ephemeral` CLI command for manual triggering
+5. Optionally configure auto-purge interval in config
 
-**Files:** Create token.py, modify vault.py
+**Files:** vault.py, cli.py
 
-**Structure:**
+**Code Outline:**
 ```python
-def require_physical_token(justification: str = "") -> bool:
-    # Try FIDO2 -> HMAC -> TOTP -> fail
-    # Return True only if token validates
+def purge_ephemeral(self, max_age_hours: int = 24) -> int:
+    cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
+    c.execute("DELETE FROM memories WHERE classification = 0 AND created_at < ?", (cutoff.isoformat(),))
+    return c.rowcount
 ```
 
 ---
 
-#### 14.1.2 verify-integrity Command
+#### 14.1.2 Lockdown Mode
 
-**Problem:** CLI parses args but has no execution logic.
+**Status:** Not Implemented
+
+**Problem:** No emergency mechanism to disable all recall operations.
 
 **Plan:**
-1. Add `verify_integrity()` method to MemoryVault:
-   - Rebuild Merkle tree from all leaves
-   - Compare against latest stored root
-   - Verify all root signatures
-   - If memory_id given, verify its specific proof
-2. Return detailed result dict
-3. Add execution in cli.py
+1. Add `vault_state` table with columns: `lockdown` (bool), `lockdown_since` (timestamp), `lockdown_reason` (text)
+2. Add `enter_lockdown(reason: str)` method - requires physical token
+3. Add `exit_lockdown()` method - requires physical token + passphrase
+4. Check lockdown state at start of `recall_memory()` - fail immediately if locked
+5. Add `lockdown` / `unlock` CLI commands
+6. Log all lockdown events to audit trail
 
-**Files:** vault.py, cli.py
+**Files:** vault.py, db.py, cli.py
+
+**Security:** Lockdown exit requires both physical token AND passphrase to prevent accidental/malicious unlock.
 
 ---
 
-#### 14.1.3 Backup/Restore Logic
+#### 14.1.3 Key Rotation
 
-**Problem:** Schema and CLI exist but no implementation.
+**Status:** Not Implemented
+
+**Problem:** No way to rotate encryption keys for a profile without losing access to memories.
 
 **Plan:**
-1. Add `create_backup()` method:
-   - Query memories (all or since last backup)
-   - Build JSON structure
-   - Encrypt with passphrase-derived key
-   - Record in backups table
-2. Add `restore_backup()` method:
-   - Decrypt and validate
-   - Insert/update memories
-   - Skip non-exportable profiles
-3. Handle incremental chains via parent_backup_id
+1. Add `last_rotation` and `rotation_count` columns to encryption_profiles
+2. Add `rotate_profile_key(profile_id: str)` method:
+   - Prompt for current passphrase
+   - Prompt for new passphrase
+   - Decrypt all memories using old key
+   - Re-encrypt with new key
+   - Update salt for each memory
+   - Record rotation event
+3. Add `rotate-key` CLI command
+4. Optionally enforce rotation policy (time-based or event-based)
 
-**Files:** vault.py, cli.py
+**Files:** vault.py, db.py, cli.py
+
+**Warning:** KeyFile profiles require secure destruction of old keyfile after rotation.
 
 ---
 
-### 14.2 MEDIUM PRIORITY
+#### 14.1.4 TPM Hardware Validation
 
-#### 14.2.1 Level 0 Ephemeral Auto-Purge
+**Status:** Code Complete, Untested
+
+**Problem:** TPM code exists but hasn't been validated on real hardware.
 
 **Plan:**
-1. Add `purge_ephemeral(max_age_hours)` to vault.py
-2. Call on vault initialization or via CLI command
-3. Delete level 0 memories older than threshold
+1. Set up test environment with TPM 2.0 (hardware or swtpm simulator)
+2. Test `tpm_create_and_persist_primary()` - verify primary key creation
+3. Test `tpm_generate_sealed_key()` - verify key sealing to PCRs 0-7
+4. Test `tpm_unseal_key()` - verify unsealing works and fails on PCR mismatch
+5. Test `tpm_seal_signing_key()` - verify signing key sealing
+6. Document PCR binding behavior and recovery procedures
+7. Add integration tests
+
+**Dependencies:** tpm2-pytss, TPM 2.0 hardware or swtpm
 
 ---
 
-#### 14.2.2 Lockdown Mode
+### 14.2 LOW PRIORITY
+
+#### 14.2.1 Memory Tombstones
+
+**Status:** Not Implemented
+
+**Problem:** No way to mark a memory as inaccessible while retaining it for audit purposes.
 
 **Plan:**
-1. Add vault_state table with lockdown flag
-2. Add `enter_lockdown()` / `exit_lockdown()` methods
-3. Check lockdown state at start of recall_memory()
-4. Require physical token for lockdown changes
+1. Add `tombstoned` (bool) and `tombstoned_at` (timestamp) columns to memories table
+2. Add `tombstone_memory(memory_id: str, reason: str)` method
+3. Tombstoning requires human approval + physical token for Level 3+
+4. Tombstoned memories cannot be recalled but appear in searches
+5. Add `tombstone` CLI command
+6. Log tombstone event to audit trail
+
+**Files:** vault.py, db.py, cli.py
 
 ---
 
-#### 14.2.3 Key Rotation
+#### 14.2.2 IntentLog Adapter
+
+**Status:** Not Implemented
+
+**Problem:** No built-in integration with external IntentLog systems.
 
 **Plan:**
-1. Add last_rotation column to encryption_profiles
-2. Add `rotate_profile_key()` method
-3. Re-encrypt all memories using the profile
-4. Add `rotate-key` CLI command
+1. Create `intentlog.py` with adapter interface
+2. Implement `link_intent(memory_id: str, intent_id: str)` - bidirectional linking
+3. Implement `get_memories_for_intent(intent_id: str)` - query by intent
+4. Implement `get_intents_for_memory(memory_id: str)` - reverse lookup
+5. Add FTS index on intent_ref column
+6. Add `search-by-intent` CLI command
+
+**Files:** Create intentlog.py, modify db.py, cli.py
+
+**Integration Point:** Uses existing `intent_ref` field in MemoryObject schema.
 
 ---
 
-#### 14.2.4 Complete TPM Implementation
+#### 14.2.3 Zero-Knowledge Proofs
+
+**Status:** Not Implemented
+
+**Problem:** Cannot prove memory existence without revealing content.
 
 **Plan:**
-1. Implement `tpm_generate_sealed_key()` with actual TPM calls
-2. Implement `tpm_unseal_key()` with PCR validation
-3. Test with TPM 2.0 hardware or swtpm simulator
+1. Research ZK libraries: py_ecc, libsnark Python bindings, or zkSNARKs
+2. Design proof structure:
+   - Prover: owner with decryption key
+   - Verifier: third party without key access
+   - Statement: "Memory with hash H exists and was created before time T"
+3. Implement `generate_existence_proof(memory_id: str)` method
+4. Implement `verify_existence_proof(proof: bytes, commitment: bytes)` method
+5. Add `zk-prove` / `zk-verify` CLI commands
 
-**Dependencies:** tpm2-pytss, TPM hardware
+**Files:** Create zkproofs.py, modify cli.py
+
+**Note:** This is a complex feature requiring careful cryptographic design.
 
 ---
 
-### 14.3 LOW PRIORITY
+#### 14.2.4 Escrowed Keys
 
-#### 14.3.1 Memory Tombstones
+**Status:** Not Implemented (Dead-man switch provides similar functionality)
+
+**Problem:** No third-party key escrow mechanism (distinct from dead-man switch).
 
 **Plan:**
-1. Add `tombstoned` column to memories
-2. Add `tombstone_memory()` method
-3. Check tombstone in recall_memory()
+1. Design escrow protocol with split keys (Shamir's Secret Sharing)
+2. Add escrow_shards table with encrypted key shares
+3. Implement `create_escrow(threshold: int, total_shares: int)` method
+4. Implement `recover_from_escrow(shards: list[bytes])` method
+5. Escrow recovery requires quorum of shares
+
+**Files:** Create escrow.py, modify db.py, cli.py
+
+**Note:** Consider using existing dead-man switch for most succession use cases.
 
 ---
 
-#### 14.3.2 IntentLog Adapter
+### 14.3 FUTURE / MP-02 INTEGRATION
 
-**Plan:**
-1. Create intentlog.py with helper functions
-2. Add search-by-intent CLI command
+#### 14.3.1 MP-02 Proof-of-Effort Receipt Protocol
+
+**Status:** Specification Only (see MP-02-spec.md)
+
+**Problem:** Memory Vault stores cognitive artifacts but doesn't prove the effort that created them.
+
+**Background:** MP-02 (NatLangChain Effort Verification) defines how human intellectual effort is observed, validated, and recorded as cryptographically verifiable receipts. This integration allows Memory Vault memories to be linked to effort proofs.
+
+**Integration Plan:**
+
+**Phase 1: Receipt Schema Integration**
+1. Add `effort_receipt_id` column to memories table
+2. Add `receipts` table to store effort receipt metadata:
+   ```sql
+   CREATE TABLE effort_receipts (
+       receipt_id TEXT PRIMARY KEY,
+       memory_id TEXT REFERENCES memories(memory_id),
+       time_bounds_start TEXT,
+       time_bounds_end TEXT,
+       signal_hashes TEXT,          -- JSON array of signal hashes
+       effort_summary TEXT,         -- Deterministic summary
+       validator_id TEXT,           -- LLM model identifier
+       validator_version TEXT,      -- Model version
+       observer_id TEXT,            -- Observer system identifier
+       anchored_at TEXT,            -- Ledger anchor timestamp
+       ledger_proof TEXT            -- Inclusion proof
+   );
+   ```
+
+**Phase 2: Observer Integration**
+1. Create `observer.py` for signal capture
+2. Implement signal types: text edits, command history, tool interactions
+3. Time-stamp and hash all signals
+4. Segment signals by activity boundaries or explicit markers
+
+**Phase 3: Validator Integration**
+1. Create `validator.py` for effort assessment
+2. Integrate with LLM for coherence/progression analysis
+3. Produce deterministic summaries
+4. Preserve uncertainty and dissent
+5. Record model identity and version
+
+**Phase 4: Receipt Construction**
+1. Create `receipt.py` for MP-02 receipt building
+2. Generate receipt ID, time bounds, signal hashes
+3. Include validation metadata
+4. Sign receipt with vault's Ed25519 key
+
+**Phase 5: Ledger Anchoring**
+1. Design append-only ledger format (local SQLite or external)
+2. Hash receipt contents and append to ledger
+3. Generate inclusion proofs
+4. Support external ledger systems (blockchain optional)
+
+**Files:** Create observer.py, validator.py, receipt.py, ledger.py; modify db.py, vault.py, cli.py
+
+**CLI Commands:**
+- `effort-observe start/stop` - Control signal observation
+- `effort-segment` - Mark activity boundary
+- `effort-validate <segment_id>` - Generate effort assessment
+- `effort-receipt <memory_id>` - Create and anchor receipt
+- `effort-verify <receipt_id>` - Verify receipt against ledger
+
+**Compatibility:** MP-02 receipts will be compatible with MP-01 Negotiation & Ratification protocol for future licensing/delegation.
 
 ---
 
-#### 14.3.3 Zero-Knowledge Proofs
+#### 14.3.2 Remote TPM Attestation
+
+**Status:** Future
+
+**Dependencies:** TPM hardware validation complete
 
 **Plan:**
-1. Research ZK libraries (py_ecc, etc.)
-2. Implement proof of existence without content disclosure
-3. Add generate/verify commands
+1. Implement remote attestation protocol
+2. Generate TPM quotes for platform state
+3. Allow third-party verification of vault integrity
+4. Integrate with enterprise key management
 
 ---
 
-### 14.4 FUTURE
+#### 14.3.3 Web Audit Viewer
 
-| Feature | Dependencies |
-|---------|--------------|
-| Remote TPM Attestation | TPM implementation |
-| Web Audit Viewer | verify-integrity |
-| MP-02 Integration | Separate protocol |
-| Multi-Device Sync | Key exchange protocol |
+**Status:** Future
+
+**Dependencies:** verify-integrity complete
+
+**Plan:**
+1. Create read-only web interface for audit trail visualization
+2. Display Merkle tree structure graphically
+3. Show recall history with approval/denial status
+4. Export audit reports in standard formats
+
+---
+
+#### 14.3.4 Multi-Device Sync
+
+**Status:** Future
+
+**Dependencies:** Key exchange protocol design
+
+**Plan:**
+1. Design secure key exchange between trusted devices
+2. Implement conflict resolution for concurrent modifications
+3. Support selective sync (by classification level)
+4. End-to-end encryption for sync transport
+
+**Note:** This partially conflicts with "offline-first" principle - requires careful design.
 
 ---
 
@@ -415,21 +573,30 @@ def require_physical_token(justification: str = "") -> bool:
 
 | File | Purpose | Status |
 |------|---------|--------|
-| vault.py | Core MemoryVault class | Production |
-| db.py | SQLite schema, FTS | Production |
-| crypto.py | Encryption, signing | TPM stubs |
-| merkle.py | Merkle tree | Production |
-| boundry.py | Boundary client | Production (typo in name) |
-| deadman.py | Dead-man switch | Needs token.py |
-| models.py | Dataclasses | Production |
-| cli.py | CLI interface | Incomplete commands |
-| token.py | Physical tokens | Missing |
+| vault.py | Core MemoryVault class (store, recall, backup, restore, verify) | Production |
+| db.py | SQLite schema, FTS5, migrations | Production |
+| crypto.py | AES-256-GCM encryption, Argon2id KDF, Ed25519 signing, TPM | Production (TPM untested) |
+| merkle.py | Merkle tree construction, verification, rebuild | Production |
+| boundry.py | Boundary daemon Unix socket client | Production (typo in name) |
+| deadman.py | Dead-man switch, heir management, encrypted payloads | Production |
+| models.py | MemoryObject and related dataclasses | Production |
+| cli.py | Complete command-line interface | Production |
+| token.py | Physical token authentication (FIDO2, HMAC, TOTP) | Production |
 
 ---
 
 ## 16. Known Issues
 
-1. **Filename typo:** `boundry.py` should be `boundary.py`
-2. **Import error:** deadman.py imports non-existent token.py
-3. **Incomplete CLI:** backup, restore, verify-integrity don't execute
-4. **TPM untested:** TPM code not validated on hardware
+1. **Filename typo:** `boundry.py` should be `boundary.py` - kept for backwards compatibility
+2. **TPM untested:** TPM sealing/unsealing code has not been validated on hardware
+3. **FIDO2 credential registration:** token.py verifies device presence but doesn't implement full credential management
+
+---
+
+## 17. Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | Dec 2025 | Initial specification |
+| 1.1 | Dec 19, 2025 | Added implementation status, plans, MP-02 integration |
+| 1.2 | Dec 19, 2025 | Updated status: token.py, backup/restore, verify-integrity now fully implemented |
