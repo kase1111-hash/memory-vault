@@ -26,8 +26,8 @@ class EncryptionProfile:
 
 @dataclass
 class RecallRequest:
-    request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     memory_id: str
     requester: str
     justification: str
+    request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     approved: bool = False

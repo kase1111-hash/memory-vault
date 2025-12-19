@@ -12,7 +12,7 @@ from nacl.encoding import Base64Encoder
 import base64
 
 from memory_vault.crypto import derive_key_from_passphrase, encrypt_memory
-from memory_vault.token import require_physical_token
+from memory_vault.physical_token import require_physical_token
 
 DB_PATH = os.path.expanduser("~/.memory_vault/vault.db")
 DMS_CONFIG_PATH = os.path.expanduser("~/.memory_vault/deadman_config.json")
