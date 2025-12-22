@@ -99,6 +99,24 @@ def main():
 
     p_dms_release = subparsers.add_parser("dms-release-packages", help="Export release packages (triggered)")
 
+    # --- Ephemeral Purge ---
+    p_purge = subparsers.add_parser("purge-ephemeral", help="Purge old Level 0 ephemeral memories")
+    p_purge.add_argument("--max-age-hours", type=int, default=24, help="Max age in hours (default 24)")
+
+    p_ephemeral_status = subparsers.add_parser("ephemeral-status", help="Show ephemeral memory statistics")
+
+    # --- Lockdown Mode ---
+    p_lockdown = subparsers.add_parser("lockdown", help="Enter vault lockdown (disable ALL recalls)")
+    p_lockdown.add_argument("reason", help="Reason for lockdown")
+
+    p_unlock = subparsers.add_parser("unlock", help="Exit vault lockdown")
+
+    p_lockdown_status = subparsers.add_parser("lockdown-status", help="Show lockdown status")
+
+    # --- Key Rotation ---
+    p_rotate = subparsers.add_parser("rotate-key", help="Rotate encryption key for a profile")
+    p_rotate.add_argument("profile_id", help="Profile to rotate")
+
     args = parser.parse_args()
     vault = MemoryVault()
     init_deadman_switch()  # Ensure tables exist
@@ -239,6 +257,62 @@ def main():
                 with open(filename, "w") as f:
                     json.dump(pkg, f, indent=2)
                 print(f"Package for {pkg['heir']} → {filename}")
+
+    # ==================== Ephemeral Purge Commands ====================
+
+    elif args.command == "purge-ephemeral":
+        count = vault.purge_ephemeral(max_age_hours=args.max_age_hours)
+        sys.exit(0)
+
+    elif args.command == "ephemeral-status":
+        stats = vault.get_ephemeral_count()
+        print("\n=== Ephemeral Memory Status ===\n")
+        print(f"Count: {stats['count']}")
+        if stats['oldest']:
+            print(f"Oldest: {stats['oldest']}")
+        if stats['newest']:
+            print(f"Newest: {stats['newest']}")
+        print()
+
+    # ==================== Lockdown Commands ====================
+
+    elif args.command == "lockdown":
+        try:
+            result = vault.enter_lockdown(args.reason)
+            sys.exit(0 if result else 1)
+        except Exception as e:
+            print(f"Lockdown failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "unlock":
+        try:
+            result = vault.exit_lockdown()
+            sys.exit(0 if result else 1)
+        except Exception as e:
+            print(f"Unlock failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "lockdown-status":
+        is_locked, since, reason = vault.is_locked_down()
+        print("\n=== Vault Lockdown Status ===\n")
+        if is_locked:
+            print("🔒 VAULT IS LOCKED DOWN")
+            print(f"   Since: {since}")
+            print(f"   Reason: {reason}")
+        else:
+            print("🔓 Vault is NOT in lockdown")
+            print("   All operations permitted")
+        print()
+
+    # ==================== Key Rotation Commands ====================
+
+    elif args.command == "rotate-key":
+        try:
+            result = vault.rotate_profile_key(args.profile_id)
+            sys.exit(0 if result else 1)
+        except Exception as e:
+            print(f"Key rotation failed: {e}")
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()

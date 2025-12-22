@@ -1,6 +1,6 @@
 # Memory Vault Specification
 
-**Version:** 1.3
+**Version:** 1.4
 **Last Updated:** December 22, 2025
 **Status:** Production (Core Features Complete)
 
@@ -33,7 +33,7 @@ Every memory object MUST declare a classification at creation.
 
 | Level | Name | Description | Status |
 |-------|------|-------------|--------|
-| 0 | Ephemeral | Session-only, auto-purged | Partial (no auto-purge) |
+| 0 | Ephemeral | Session-only, auto-purged | Implemented |
 | 1 | Working | Short-term, low sensitivity | Implemented |
 | 2 | Private | Owner-only recall | Implemented |
 | 3 | Sealed | Encrypted, delayed access, human approval | Implemented |
@@ -259,6 +259,9 @@ Allows proof of audit trail integrity without revealing memory content.
 | Backup (full + incremental) | vault.py, cli.py |
 | Restore from backup | vault.py, cli.py |
 | Integrity verification (Merkle + signatures) | vault.py, cli.py |
+| Level 0 ephemeral auto-purge | vault.py, cli.py |
+| Lockdown mode | vault.py, db.py, cli.py |
+| Key rotation | vault.py, db.py, cli.py |
 
 ### 13.2 Partially Implemented
 
@@ -266,15 +269,11 @@ Allows proof of audit trail integrity without revealing memory content.
 |---------|-------|---------|
 | TPM memory sealing | Full code exists | Hardware testing/validation |
 | TPM-sealed signing key | Full code exists | Hardware testing/validation |
-| Level 0 ephemeral | Storage works | Auto-purge on session end |
 
 ### 13.3 Not Implemented
 
 | Feature | Priority | Description |
 |---------|----------|-------------|
-| Level 0 auto-purge | MEDIUM | Auto-delete ephemeral memories after session |
-| Lockdown mode | MEDIUM | Emergency all-recall-disabled mode |
-| Key rotation logic | MEDIUM | Re-encrypt memories with new profile key |
 | Memory tombstones | LOW | Mark memories inaccessible but retained |
 | Zero-knowledge proofs | LOW | Prove existence without content disclosure |
 | IntentLog adapter | LOW | Bidirectional linking with IntentLog system |
@@ -285,78 +284,62 @@ Allows proof of audit trail integrity without revealing memory content.
 
 ## 14. Implementation Plans
 
-### 14.1 MEDIUM PRIORITY
+### 14.1 RECENTLY IMPLEMENTED (v1.4)
 
 #### 14.1.1 Level 0 Ephemeral Auto-Purge
 
-**Status:** Not Implemented
+**Status:** ✓ Implemented (v1.4)
 
-**Problem:** Level 0 memories are stored but never automatically purged, contradicting the "ephemeral" designation.
-
-**Plan:**
-1. Add `purge_ephemeral(max_age_hours: int = 24)` method to vault.py
-2. Delete all level 0 memories older than threshold
-3. Call automatically on vault initialization
-4. Add `purge-ephemeral` CLI command for manual triggering
-5. Optionally configure auto-purge interval in config
+**Implementation:**
+- Added `purge_ephemeral(max_age_hours: int = 24)` method to vault.py
+- Added `get_ephemeral_count()` for statistics
+- CLI commands: `purge-ephemeral`, `ephemeral-status`
+- Deletes Level 0 memories older than configurable threshold
 
 **Files:** vault.py, cli.py
-
-**Code Outline:**
-```python
-def purge_ephemeral(self, max_age_hours: int = 24) -> int:
-    cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
-    c.execute("DELETE FROM memories WHERE classification = 0 AND created_at < ?", (cutoff.isoformat(),))
-    return c.rowcount
-```
 
 ---
 
 #### 14.1.2 Lockdown Mode
 
-**Status:** Not Implemented
+**Status:** ✓ Implemented (v1.4)
 
-**Problem:** No emergency mechanism to disable all recall operations.
-
-**Plan:**
-1. Add `vault_state` table with columns: `lockdown` (bool), `lockdown_since` (timestamp), `lockdown_reason` (text)
-2. Add `enter_lockdown(reason: str)` method - requires physical token
-3. Add `exit_lockdown()` method - requires physical token + passphrase
-4. Check lockdown state at start of `recall_memory()` - fail immediately if locked
-5. Add `lockdown` / `unlock` CLI commands
-6. Log all lockdown events to audit trail
+**Implementation:**
+- Added `vault_state` table with lockdown tracking
+- Added `is_locked_down()`, `enter_lockdown(reason)`, `exit_lockdown()` methods
+- Lockdown check at start of `recall_memory()` - fails immediately if locked
+- CLI commands: `lockdown`, `unlock`, `lockdown-status`
+- Physical token required to enter/exit lockdown
+- Exit also requires passphrase verification
 
 **Files:** vault.py, db.py, cli.py
-
-**Security:** Lockdown exit requires both physical token AND passphrase to prevent accidental/malicious unlock.
 
 ---
 
 #### 14.1.3 Key Rotation
 
-**Status:** Not Implemented
+**Status:** ✓ Implemented (v1.4)
 
-**Problem:** No way to rotate encryption keys for a profile without losing access to memories.
-
-**Plan:**
-1. Add `last_rotation` and `rotation_count` columns to encryption_profiles
-2. Add `rotate_profile_key(profile_id: str)` method:
-   - Prompt for current passphrase
-   - Prompt for new passphrase
-   - Decrypt all memories using old key
-   - Re-encrypt with new key
-   - Update salt for each memory
-   - Record rotation event
-3. Add `rotate-key` CLI command
-4. Optionally enforce rotation policy (time-based or event-based)
+**Implementation:**
+- Added `last_rotation` and `rotation_count` columns to encryption_profiles
+- Added `rotate_profile_key(profile_id)` method:
+  - Decrypts all memories using old key
+  - Re-encrypts with new key (new salt/nonce per memory)
+  - Records rotation timestamp and count
+  - Rolls back on any failure
+- CLI command: `rotate-key <profile_id>`
+- Physical token required for rotation
+- KeyFile rotation auto-backs up old keyfile
 
 **Files:** vault.py, db.py, cli.py
 
-**Warning:** KeyFile profiles require secure destruction of old keyfile after rotation.
+**Note:** TPM profiles cannot be rotated (hardware-bound by design).
 
 ---
 
-#### 14.1.4 TPM Hardware Validation
+### 14.2 PENDING
+
+#### 14.2.1 TPM Hardware Validation
 
 **Status:** Code Complete, Untested
 
@@ -375,9 +358,9 @@ def purge_ephemeral(self, max_age_hours: int = 24) -> int:
 
 ---
 
-### 14.2 LOW PRIORITY
+### 14.3 LOW PRIORITY
 
-#### 14.2.1 Memory Tombstones
+#### 14.3.1 Memory Tombstones
 
 **Status:** Not Implemented
 
@@ -395,7 +378,7 @@ def purge_ephemeral(self, max_age_hours: int = 24) -> int:
 
 ---
 
-#### 14.2.2 IntentLog Adapter
+#### 14.3.2 IntentLog Adapter
 
 **Status:** Not Implemented
 
@@ -415,7 +398,7 @@ def purge_ephemeral(self, max_age_hours: int = 24) -> int:
 
 ---
 
-#### 14.2.3 Zero-Knowledge Proofs
+#### 14.3.3 Zero-Knowledge Proofs
 
 **Status:** Not Implemented
 
@@ -437,7 +420,7 @@ def purge_ephemeral(self, max_age_hours: int = 24) -> int:
 
 ---
 
-#### 14.2.4 Escrowed Keys
+#### 14.3.4 Escrowed Keys
 
 **Status:** Not Implemented (Dead-man switch provides similar functionality)
 
@@ -601,6 +584,7 @@ def purge_ephemeral(self, max_age_hours: int = 24) -> int:
 | 1.1 | Dec 19, 2025 | Added implementation status, plans, MP-02 integration |
 | 1.2 | Dec 19, 2025 | Updated status: token.py, backup/restore, verify-integrity now fully implemented |
 | 1.3 | Dec 22, 2025 | Fixed file references (token.py → physical_token.py), fixed import bug, consolidated documentation |
+| 1.4 | Dec 22, 2025 | Implemented Level 0 auto-purge, lockdown mode, key rotation; added vault_state table |
 
 ---
 
