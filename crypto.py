@@ -2,6 +2,7 @@
 
 import os
 import hashlib
+import re
 from nacl.secret import SecretBox
 from nacl.utils import random
 from nacl.pwhash import argon2id
@@ -13,6 +14,16 @@ import base64
 # Constants
 KEY_SIZE = SecretBox.KEY_SIZE          # 32 bytes
 NONCE_SIZE = SecretBox.NONCE_SIZE      # 24 bytes
+
+# Security: Profile ID validation pattern to prevent path traversal
+PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
+
+def _validate_profile_id(profile_id: str) -> None:
+    """Validate profile_id to prevent path traversal attacks."""
+    if not profile_id or len(profile_id) > 64:
+        raise ValueError("Profile ID must be 1-64 characters")
+    if not PROFILE_ID_PATTERN.match(profile_id):
+        raise ValueError("Profile ID must start with alphanumeric and contain only alphanumeric, underscore, or hyphen")
 
 # Signing key paths
 SIGNING_KEY_PATH = os.path.expanduser("~/.memory_vault/signing_key")
@@ -52,6 +63,9 @@ def load_key_from_file(keyfile_path: str) -> bytes:
 
 
 def generate_keyfile(profile_id: str, directory: str = "~/.memory_vault/keys") -> str:
+    # Security: Validate profile_id to prevent path traversal
+    _validate_profile_id(profile_id)
+
     directory = os.path.expanduser(directory)
     os.makedirs(directory, exist_ok=True)
     keyfile_path = os.path.join(directory, f"{profile_id}.key")

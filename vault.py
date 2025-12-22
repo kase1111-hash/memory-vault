@@ -25,6 +25,18 @@ from .db import DB_PATH, init_db
 from .boundry import check_recall
 from .merkle import hash_leaf, build_tree
 
+import re
+
+# Security: Validate profile_id to prevent path traversal
+PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
+
+def validate_profile_id(profile_id: str) -> None:
+    """Validate profile_id to prevent path traversal attacks."""
+    if not profile_id or len(profile_id) > 64:
+        raise ValueError("Profile ID must be 1-64 characters")
+    if not PROFILE_ID_PATTERN.match(profile_id):
+        raise ValueError("Profile ID must start with alphanumeric and contain only alphanumeric, underscore, or hyphen")
+
 
 class MemoryVault:
     def __init__(self):
@@ -44,6 +56,9 @@ class MemoryVault:
         generate_keyfile: bool = False
     ) -> None:
         from .crypto import TPM_AVAILABLE  # Local import to avoid circular issues
+
+        # Security: Validate profile_id to prevent path traversal
+        validate_profile_id(profile_id)
 
         allowed = ["HumanPassphrase", "KeyFile"]
         if key_source == "TPM" and TPM_AVAILABLE:
@@ -907,6 +922,9 @@ class MemoryVault:
             bool: True if rotation was successful
         """
         from .physical_token import require_physical_token
+
+        # Security: Validate profile_id to prevent path traversal
+        validate_profile_id(profile_id)
 
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
