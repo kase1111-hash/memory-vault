@@ -22,7 +22,7 @@ from .crypto import (
     sign_root
 )
 from .db import DB_PATH, init_db
-from .boundary import check_recall
+from .boundry import check_recall
 from .merkle import hash_leaf, build_tree
 
 

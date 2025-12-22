@@ -1,7 +1,7 @@
 # Memory Vault Specification
 
-**Version:** 1.2
-**Last Updated:** December 19, 2025
+**Version:** 1.3
+**Last Updated:** December 22, 2025
 **Status:** Production (Core Features Complete)
 
 ---
@@ -252,10 +252,10 @@ Allows proof of audit trail integrity without revealing memory content.
 | Heir management + encrypted payloads | deadman.py |
 | CLI interface | cli.py |
 | Boundary daemon client | boundry.py |
-| Physical token authentication (Level 5) | token.py |
-| FIDO2/U2F token support | token.py |
-| HMAC challenge-response tokens | token.py |
-| TOTP/HOTP fallback tokens | token.py |
+| Physical token authentication (Level 5) | physical_token.py |
+| FIDO2/U2F token support | physical_token.py |
+| HMAC challenge-response tokens | physical_token.py |
+| TOTP/HOTP fallback tokens | physical_token.py |
 | Backup (full + incremental) | vault.py, cli.py |
 | Restore from backup | vault.py, cli.py |
 | Integrity verification (Merkle + signatures) | vault.py, cli.py |
@@ -581,7 +581,7 @@ def purge_ephemeral(self, max_age_hours: int = 24) -> int:
 | deadman.py | Dead-man switch, heir management, encrypted payloads | Production |
 | models.py | MemoryObject and related dataclasses | Production |
 | cli.py | Complete command-line interface | Production |
-| token.py | Physical token authentication (FIDO2, HMAC, TOTP) | Production |
+| physical_token.py | Physical token authentication (FIDO2, HMAC, TOTP) | Production |
 
 ---
 
@@ -589,7 +589,7 @@ def purge_ephemeral(self, max_age_hours: int = 24) -> int:
 
 1. **Filename typo:** `boundry.py` should be `boundary.py` - kept for backwards compatibility
 2. **TPM untested:** TPM sealing/unsealing code has not been validated on hardware
-3. **FIDO2 credential registration:** token.py verifies device presence but doesn't implement full credential management
+3. **FIDO2 credential registration:** physical_token.py verifies device presence but doesn't implement full credential management
 
 ---
 
@@ -600,3 +600,56 @@ def purge_ephemeral(self, max_age_hours: int = 24) -> int:
 | 1.0 | Dec 2025 | Initial specification |
 | 1.1 | Dec 19, 2025 | Added implementation status, plans, MP-02 integration |
 | 1.2 | Dec 19, 2025 | Updated status: token.py, backup/restore, verify-integrity now fully implemented |
+| 1.3 | Dec 22, 2025 | Fixed file references (token.py → physical_token.py), fixed import bug, consolidated documentation |
+
+---
+
+## 18. Dependencies
+
+### Required
+- `pynacl>=1.5.0` — Core cryptography (AES-256-GCM, Argon2id, Ed25519)
+- Python 3.7+ (sqlite3, json, hashlib, uuid, datetime, base64 standard library)
+
+### Optional
+- `tpm2-pytss>=2.1.0` — TPM 2.0 support (Linux only)
+- `fido2>=1.1.0` — FIDO2/U2F hardware tokens
+- `pyotp>=2.8.0` — TOTP/HOTP software tokens
+
+---
+
+## 19. Integration Points
+
+### 19.1 Boundary Daemon
+- **Purpose:** Environmental security enforcement via Unix socket
+- **Socket Path:** `~/.agent-os/api/boundary.sock`
+- **Protocol:** JSON over Unix socket
+- **Behavior:** Fail-closed (all recalls denied if daemon unavailable)
+- **See:** `docs/INTEGRATIONS.md` Section 1
+
+### 19.2 IntentLog
+- **Purpose:** Bidirectional linking with intent tracking system
+- **Integration:** Via `intent_ref` field in MemoryObject schema
+- **Status:** Field exists; bidirectional adapter not yet implemented
+- **See:** `docs/INTEGRATIONS.md` Section 2
+
+### 19.3 Physical Tokens
+- **Purpose:** Level 5 physical presence requirement
+- **Supported:** FIDO2/U2F (YubiKey, Nitrokey, OnlyKey), HMAC challenge-response, TOTP/HOTP
+- **See:** `docs/INTEGRATIONS.md` Section 3
+
+### 19.4 Dead-Man Switch / Heir Release
+- **Purpose:** Secure succession and owner-incapacitation handling
+- **Encryption:** SealedBox (X25519) for per-recipient payloads
+- **Key Format:** age/X25519 public keys
+- **See:** `docs/INTEGRATIONS.md` Section 4
+
+---
+
+## 20. Related Documentation
+
+| Document | Purpose |
+|----------|---------|
+| README.md | Installation, quick start, CLI usage |
+| RECOVERY.md | Emergency data recovery using only PyNaCl |
+| MP-02-spec.md | Proof-of-Effort Receipt Protocol specification |
+| docs/INTEGRATIONS.md | Detailed integration guides for all external systems |
