@@ -1,8 +1,8 @@
 # Memory Vault Specification
 
-**Version:** 1.4
+**Version:** 1.5
 **Last Updated:** December 22, 2025
-**Status:** Production (Core Features Complete)
+**Status:** Production (Feature Complete)
 
 ---
 
@@ -262,6 +262,10 @@ Allows proof of audit trail integrity without revealing memory content.
 | Level 0 ephemeral auto-purge | vault.py, cli.py |
 | Lockdown mode | vault.py, db.py, cli.py |
 | Key rotation | vault.py, db.py, cli.py |
+| Memory tombstones | vault.py, db.py, cli.py |
+| IntentLog adapter | intentlog.py, cli.py |
+| Zero-knowledge proofs | zkproofs.py, cli.py |
+| Escrowed keys (Shamir) | escrow.py, db.py, cli.py |
 
 ### 13.2 Partially Implemented
 
@@ -274,10 +278,6 @@ Allows proof of audit trail integrity without revealing memory content.
 
 | Feature | Priority | Description |
 |---------|----------|-------------|
-| Memory tombstones | LOW | Mark memories inaccessible but retained |
-| Zero-knowledge proofs | LOW | Prove existence without content disclosure |
-| IntentLog adapter | LOW | Bidirectional linking with IntentLog system |
-| Escrowed keys | LOW | Third-party key escrow (vs dead-man switch) |
 | MP-02 Proof-of-Effort | FUTURE | NatLangChain effort receipt integration |
 
 ---
@@ -358,21 +358,18 @@ Allows proof of audit trail integrity without revealing memory content.
 
 ---
 
-### 14.3 LOW PRIORITY
+### 14.3 RECENTLY IMPLEMENTED (v1.5)
 
 #### 14.3.1 Memory Tombstones
 
-**Status:** Not Implemented
+**Status:** ✓ Implemented (v1.5)
 
-**Problem:** No way to mark a memory as inaccessible while retaining it for audit purposes.
-
-**Plan:**
-1. Add `tombstoned` (bool) and `tombstoned_at` (timestamp) columns to memories table
-2. Add `tombstone_memory(memory_id: str, reason: str)` method
-3. Tombstoning requires human approval + physical token for Level 3+
-4. Tombstoned memories cannot be recalled but appear in searches
-5. Add `tombstone` CLI command
-6. Log tombstone event to audit trail
+**Implementation:**
+- Added `tombstoned`, `tombstoned_at`, `tombstone_reason` columns to memories table
+- Added `tombstone_memory(memory_id, reason)` method to vault.py
+- Physical token required for Level 3+ tombstoning
+- Tombstoned memories blocked at recall_memory() level
+- CLI commands: `tombstone`, `tombstone-list`, `tombstone-check`
 
 **Files:** vault.py, db.py, cli.py
 
@@ -380,68 +377,61 @@ Allows proof of audit trail integrity without revealing memory content.
 
 #### 14.3.2 IntentLog Adapter
 
-**Status:** Not Implemented
+**Status:** ✓ Implemented (v1.5)
 
-**Problem:** No built-in integration with external IntentLog systems.
+**Implementation:**
+- Created `intentlog.py` with full adapter interface
+- `link_intent()`, `unlink_intent()` for bidirectional linking
+- `get_memories_for_intent()`, `get_intents_for_memory()` for lookups
+- `search_by_intent()` for pattern-based search
+- CLI commands: `intent-link`, `intent-unlink`, `intent-search`, `intent-get`
 
-**Plan:**
-1. Create `intentlog.py` with adapter interface
-2. Implement `link_intent(memory_id: str, intent_id: str)` - bidirectional linking
-3. Implement `get_memories_for_intent(intent_id: str)` - query by intent
-4. Implement `get_intents_for_memory(memory_id: str)` - reverse lookup
-5. Add FTS index on intent_ref column
-6. Add `search-by-intent` CLI command
+**Files:** intentlog.py, cli.py
 
-**Files:** Create intentlog.py, modify db.py, cli.py
-
-**Integration Point:** Uses existing `intent_ref` field in MemoryObject schema.
+**Integration:** Uses existing `intent_ref` field (supports multiple intents as JSON array)
 
 ---
 
 #### 14.3.3 Zero-Knowledge Proofs
 
-**Status:** Not Implemented
+**Status:** ✓ Implemented (v1.5)
 
-**Problem:** Cannot prove memory existence without revealing content.
+**Implementation:**
+- Created `zkproofs.py` with commitment-based proofs
+- `generate_existence_commitment()` - proves memory exists without revealing content
+- `verify_existence_commitment()` - verifies commitment with known memory_id/timestamp
+- `generate_time_bound_proof()` - proves memory existed before specific time
+- `generate_signed_attestation()` - owner-signed statements about memories
+- CLI commands: `zk-commitment`, `zk-verify`, `zk-time-proof`
 
-**Plan:**
-1. Research ZK libraries: py_ecc, libsnark Python bindings, or zkSNARKs
-2. Design proof structure:
-   - Prover: owner with decryption key
-   - Verifier: third party without key access
-   - Statement: "Memory with hash H exists and was created before time T"
-3. Implement `generate_existence_proof(memory_id: str)` method
-4. Implement `verify_existence_proof(proof: bytes, commitment: bytes)` method
-5. Add `zk-prove` / `zk-verify` CLI commands
+**Files:** zkproofs.py, cli.py
 
-**Files:** Create zkproofs.py, modify cli.py
-
-**Note:** This is a complex feature requiring careful cryptographic design.
+**Note:** Uses cryptographic commitments (double-SHA256) rather than zkSNARKs for simplicity.
 
 ---
 
-#### 14.3.4 Escrowed Keys
+#### 14.3.4 Escrowed Keys (Shamir's Secret Sharing)
 
-**Status:** Not Implemented (Dead-man switch provides similar functionality)
+**Status:** ✓ Implemented (v1.5)
 
-**Problem:** No third-party key escrow mechanism (distinct from dead-man switch).
+**Implementation:**
+- Created `escrow.py` with full Shamir's Secret Sharing over GF(256)
+- Added `escrow_shards` table for encrypted shard storage
+- `split_secret()` / `reconstruct_secret()` - core SSS functions
+- `create_escrow()` - creates K-of-N escrow for a profile
+- `export_shard_package()` - exports encrypted shards for recipients
+- `recover_from_escrow()` - reconstructs key from threshold shards
+- CLI commands: `escrow-create`, `escrow-list`, `escrow-info`, `escrow-export`, `escrow-delete`
 
-**Plan:**
-1. Design escrow protocol with split keys (Shamir's Secret Sharing)
-2. Add escrow_shards table with encrypted key shares
-3. Implement `create_escrow(threshold: int, total_shares: int)` method
-4. Implement `recover_from_escrow(shards: list[bytes])` method
-5. Escrow recovery requires quorum of shares
+**Files:** escrow.py, db.py, cli.py
 
-**Files:** Create escrow.py, modify db.py, cli.py
-
-**Note:** Consider using existing dead-man switch for most succession use cases.
+**Usage:** Distinct from dead-man switch; requires active cooperation of multiple parties.
 
 ---
 
-### 14.3 FUTURE / MP-02 INTEGRATION
+### 14.4 FUTURE / MP-02 INTEGRATION
 
-#### 14.3.1 MP-02 Proof-of-Effort Receipt Protocol
+#### 14.4.1 MP-02 Proof-of-Effort Receipt Protocol
 
 **Status:** Specification Only (see MP-02-spec.md)
 
@@ -565,6 +555,9 @@ Allows proof of audit trail integrity without revealing memory content.
 | models.py | MemoryObject and related dataclasses | Production |
 | cli.py | Complete command-line interface | Production |
 | physical_token.py | Physical token authentication (FIDO2, HMAC, TOTP) | Production |
+| intentlog.py | IntentLog bidirectional linking adapter | Production |
+| zkproofs.py | Zero-knowledge existence proofs | Production |
+| escrow.py | Shamir's Secret Sharing key escrow | Production |
 
 ---
 
@@ -585,6 +578,7 @@ Allows proof of audit trail integrity without revealing memory content.
 | 1.2 | Dec 19, 2025 | Updated status: token.py, backup/restore, verify-integrity now fully implemented |
 | 1.3 | Dec 22, 2025 | Fixed file references (token.py → physical_token.py), fixed import bug, consolidated documentation |
 | 1.4 | Dec 22, 2025 | Implemented Level 0 auto-purge, lockdown mode, key rotation; added vault_state table |
+| 1.5 | Dec 22, 2025 | Implemented tombstones, IntentLog adapter, ZK proofs, escrowed keys (Shamir SSS) |
 
 ---
 
@@ -613,7 +607,7 @@ Allows proof of audit trail integrity without revealing memory content.
 ### 19.2 IntentLog
 - **Purpose:** Bidirectional linking with intent tracking system
 - **Integration:** Via `intent_ref` field in MemoryObject schema
-- **Status:** Field exists; bidirectional adapter not yet implemented
+- **Status:** ✓ Full adapter implemented (intentlog.py)
 - **See:** `docs/INTEGRATIONS.md` Section 2
 
 ### 19.3 Physical Tokens

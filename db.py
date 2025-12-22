@@ -134,6 +134,34 @@ def init_db():
         c.execute("ALTER TABLE encryption_profiles ADD COLUMN rotation_count INTEGER DEFAULT 0")
         print("Added 'rotation_count' column to encryption_profiles")
 
+    # --- Memory Tombstone Columns ---
+    c.execute("PRAGMA table_info(memories)")
+    memory_columns = [col[1] for col in c.fetchall()]
+    if 'tombstoned' not in memory_columns:
+        c.execute("ALTER TABLE memories ADD COLUMN tombstoned INTEGER DEFAULT 0")
+        print("Added 'tombstoned' column to memories")
+    if 'tombstoned_at' not in memory_columns:
+        c.execute("ALTER TABLE memories ADD COLUMN tombstoned_at TEXT")
+        print("Added 'tombstoned_at' column to memories")
+    if 'tombstone_reason' not in memory_columns:
+        c.execute("ALTER TABLE memories ADD COLUMN tombstone_reason TEXT")
+        print("Added 'tombstone_reason' column to memories")
+
+    # --- Escrow Shards Table ---
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS escrow_shards (
+            escrow_id TEXT NOT NULL,
+            shard_index INTEGER NOT NULL,
+            shard_data BLOB NOT NULL,
+            recipient TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            threshold INTEGER NOT NULL,
+            total_shards INTEGER NOT NULL,
+            profile_id TEXT NOT NULL,
+            PRIMARY KEY (escrow_id, shard_index)
+        )
+    ''')
+
     # --- Performance Indexes ---
     indexes = [
         ("idx_memories_classification", "CREATE INDEX idx_memories_classification ON memories (classification)"),

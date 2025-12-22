@@ -117,6 +117,66 @@ def main():
     p_rotate = subparsers.add_parser("rotate-key", help="Rotate encryption key for a profile")
     p_rotate.add_argument("profile_id", help="Profile to rotate")
 
+    # --- Memory Tombstones ---
+    p_tombstone = subparsers.add_parser("tombstone", help="Mark memory as inaccessible (retained for audit)")
+    p_tombstone.add_argument("memory_id", help="Memory to tombstone")
+    p_tombstone.add_argument("--reason", required=True, help="Reason for tombstoning")
+
+    p_tombstone_list = subparsers.add_parser("tombstone-list", help="List all tombstoned memories")
+
+    p_tombstone_check = subparsers.add_parser("tombstone-check", help="Check if a memory is tombstoned")
+    p_tombstone_check.add_argument("memory_id", help="Memory to check")
+
+    # --- IntentLog Integration ---
+    p_intent_link = subparsers.add_parser("intent-link", help="Link a memory to an intent ID")
+    p_intent_link.add_argument("memory_id")
+    p_intent_link.add_argument("intent_id")
+
+    p_intent_unlink = subparsers.add_parser("intent-unlink", help="Remove intent link from memory")
+    p_intent_unlink.add_argument("memory_id")
+    p_intent_unlink.add_argument("intent_id")
+
+    p_intent_search = subparsers.add_parser("intent-search", help="Search memories by intent")
+    p_intent_search.add_argument("query", help="Intent ID or pattern")
+    p_intent_search.add_argument("--limit", type=int, default=20)
+
+    p_intent_get = subparsers.add_parser("intent-get", help="Get intents for a memory")
+    p_intent_get.add_argument("memory_id")
+
+    # --- Zero-Knowledge Proofs ---
+    p_zk_commitment = subparsers.add_parser("zk-commitment", help="Generate existence commitment for a memory")
+    p_zk_commitment.add_argument("memory_id")
+    p_zk_commitment.add_argument("--output", help="Output file for commitment JSON")
+
+    p_zk_verify = subparsers.add_parser("zk-verify", help="Verify an existence commitment")
+    p_zk_verify.add_argument("commitment_file", help="Path to commitment JSON")
+    p_zk_verify.add_argument("memory_id")
+    p_zk_verify.add_argument("created_at")
+
+    p_zk_time = subparsers.add_parser("zk-time-proof", help="Generate time-bound existence proof")
+    p_zk_time.add_argument("memory_id")
+    p_zk_time.add_argument("before_timestamp", help="ISO timestamp to prove existence before")
+
+    # --- Key Escrow ---
+    p_escrow_create = subparsers.add_parser("escrow-create", help="Create escrowed key shards")
+    p_escrow_create.add_argument("profile_id", help="Profile to escrow")
+    p_escrow_create.add_argument("--threshold", type=int, required=True, help="Minimum shards for recovery")
+    p_escrow_create.add_argument("--recipients", required=True, help="Comma-separated name:pubkey_b64 pairs")
+
+    p_escrow_list = subparsers.add_parser("escrow-list", help="List escrows")
+    p_escrow_list.add_argument("--profile", help="Filter by profile")
+
+    p_escrow_info = subparsers.add_parser("escrow-info", help="Get escrow details")
+    p_escrow_info.add_argument("escrow_id")
+
+    p_escrow_export = subparsers.add_parser("escrow-export", help="Export shard for a recipient")
+    p_escrow_export.add_argument("escrow_id")
+    p_escrow_export.add_argument("recipient_name")
+    p_escrow_export.add_argument("--output", help="Output file")
+
+    p_escrow_delete = subparsers.add_parser("escrow-delete", help="Delete an escrow")
+    p_escrow_delete.add_argument("escrow_id")
+
     args = parser.parse_args()
     vault = MemoryVault()
     init_deadman_switch()  # Ensure tables exist
@@ -312,6 +372,207 @@ def main():
             sys.exit(0 if result else 1)
         except Exception as e:
             print(f"Key rotation failed: {e}")
+            sys.exit(1)
+
+    # ==================== Memory Tombstone Commands ====================
+
+    elif args.command == "tombstone":
+        try:
+            result = vault.tombstone_memory(args.memory_id, args.reason)
+            sys.exit(0 if result else 1)
+        except Exception as e:
+            print(f"Tombstone failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "tombstone-list":
+        memories = vault.get_tombstoned_memories()
+        print("\n=== Tombstoned Memories ===\n")
+        if not memories:
+            print("No tombstoned memories")
+        else:
+            for m in memories:
+                print(f"{m['memory_id'][:12]}... | Level {m['classification']} | {m['tombstoned_at']}")
+                print(f"  Reason: {m['reason']}")
+                print()
+        sys.exit(0)
+
+    elif args.command == "tombstone-check":
+        try:
+            is_tomb, tomb_at, reason = vault.is_tombstoned(args.memory_id)
+            if is_tomb:
+                print(f"\nMemory {args.memory_id} is TOMBSTONED")
+                print(f"  Since: {tomb_at}")
+                print(f"  Reason: {reason}\n")
+            else:
+                print(f"\nMemory {args.memory_id} is NOT tombstoned\n")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    # ==================== IntentLog Commands ====================
+
+    elif args.command == "intent-link":
+        from memory_vault.intentlog import link_intent
+        try:
+            link_intent(args.memory_id, args.intent_id)
+        except Exception as e:
+            print(f"Link failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "intent-unlink":
+        from memory_vault.intentlog import unlink_intent
+        try:
+            unlink_intent(args.memory_id, args.intent_id)
+        except Exception as e:
+            print(f"Unlink failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "intent-search":
+        from memory_vault.intentlog import search_by_intent
+        results = search_by_intent(args.query, args.limit)
+        print(f"\n=== Intent Search: '{args.query}' ===\n")
+        if not results:
+            print("No matches found")
+        else:
+            for r in results:
+                tomb = " [TOMBSTONED]" if r['tombstoned'] else ""
+                print(f"{r['memory_id'][:12]}... | Level {r['classification']}{tomb}")
+                print(f"  Intents: {', '.join(r['intent_refs']) if r['intent_refs'] else 'None'}")
+                print()
+
+    elif args.command == "intent-get":
+        from memory_vault.intentlog import get_intents_for_memory
+        try:
+            intents = get_intents_for_memory(args.memory_id)
+            print(f"\n=== Intents for {args.memory_id} ===\n")
+            if not intents:
+                print("No linked intents")
+            else:
+                for intent in intents:
+                    print(f"  - {intent}")
+            print()
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    # ==================== Zero-Knowledge Proof Commands ====================
+
+    elif args.command == "zk-commitment":
+        from memory_vault.zkproofs import generate_existence_commitment
+        try:
+            commitment = generate_existence_commitment(args.memory_id)
+            if args.output:
+                with open(args.output, "w") as f:
+                    json.dump(commitment, f, indent=2)
+                print(f"Commitment saved to {args.output}")
+            else:
+                print(json.dumps(commitment, indent=2))
+        except Exception as e:
+            print(f"Commitment generation failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "zk-verify":
+        from memory_vault.zkproofs import verify_existence_commitment
+        try:
+            with open(args.commitment_file, "r") as f:
+                commitment = json.load(f)
+            is_valid, message = verify_existence_commitment(
+                commitment, args.memory_id, args.created_at
+            )
+            if is_valid:
+                print(f"\n✓ {message}\n")
+                sys.exit(0)
+            else:
+                print(f"\n✗ {message}\n")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Verification failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "zk-time-proof":
+        from memory_vault.zkproofs import generate_time_bound_proof
+        try:
+            proof = generate_time_bound_proof(args.memory_id, args.before_timestamp)
+            print(json.dumps(proof, indent=2))
+            if proof['existed_before']:
+                print(f"\n✓ Memory existed before {args.before_timestamp}\n")
+            else:
+                print(f"\n✗ Memory was created AFTER {args.before_timestamp}\n")
+        except Exception as e:
+            print(f"Proof generation failed: {e}")
+            sys.exit(1)
+
+    # ==================== Escrow Commands ====================
+
+    elif args.command == "escrow-create":
+        from memory_vault.escrow import create_escrow
+        try:
+            # Parse recipients: "name1:pubkey1,name2:pubkey2"
+            recipients = []
+            for pair in args.recipients.split(","):
+                name, pubkey = pair.strip().split(":", 1)
+                recipients.append((name.strip(), pubkey.strip()))
+
+            escrow_id = create_escrow(
+                args.profile_id,
+                args.threshold,
+                recipients
+            )
+            if escrow_id:
+                print(f"\nEscrow created: {escrow_id}\n")
+        except Exception as e:
+            print(f"Escrow creation failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "escrow-list":
+        from memory_vault.escrow import list_escrows
+        escrows = list_escrows(args.profile if hasattr(args, 'profile') else None)
+        print("\n=== Key Escrows ===\n")
+        if not escrows:
+            print("No escrows found")
+        else:
+            for e in escrows:
+                print(f"{e['escrow_id'][:12]}... | {e['profile_id']} | {e['threshold']}-of-{e['total_shards']}")
+                print(f"  Created: {e['created_at']}")
+                print()
+
+    elif args.command == "escrow-info":
+        from memory_vault.escrow import get_escrow_info
+        try:
+            info = get_escrow_info(args.escrow_id)
+            print(f"\n=== Escrow: {info['escrow_id']} ===\n")
+            print(f"Profile: {info['profile_id']}")
+            print(f"Threshold: {info['threshold']} of {info['total_shards']}")
+            print(f"Created: {info['created_at']}")
+            print("\nRecipients:")
+            for r in info['recipients']:
+                print(f"  Shard {r['index']}: {r['name']}")
+            print()
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    elif args.command == "escrow-export":
+        from memory_vault.escrow import export_shard_package
+        try:
+            package = export_shard_package(args.escrow_id, args.recipient_name)
+            if args.output:
+                with open(args.output, "w") as f:
+                    json.dump(package, f, indent=2)
+                print(f"Shard package exported to {args.output}")
+            else:
+                print(json.dumps(package, indent=2))
+        except Exception as e:
+            print(f"Export failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "escrow-delete":
+        from memory_vault.escrow import delete_escrow
+        try:
+            result = delete_escrow(args.escrow_id)
+            sys.exit(0 if result else 1)
+        except Exception as e:
+            print(f"Delete failed: {e}")
             sys.exit(1)
 
 if __name__ == "__main__":
