@@ -171,6 +171,13 @@ class MemoryVault:
             conn.close()
             raise ValueError("Memory not found")
 
+        # Check if memory is tombstoned (columns: tombstoned at index 14, reason at 16)
+        c.execute("SELECT tombstoned, tombstone_reason FROM memories WHERE memory_id = ?", (memory_id,))
+        tomb_row = c.fetchone()
+        if tomb_row and tomb_row[0]:
+            conn.close()
+            raise PermissionError(f"Memory is TOMBSTONED: {tomb_row[1] or 'No reason provided'}")
+
         columns = [d[0] for d in c.description]
         row_dict = dict(zip(columns, row))
 
@@ -1064,3 +1071,139 @@ class MemoryVault:
         print("="*50 + "\n")
 
         return True
+
+    # ==================== Memory Tombstones ====================
+
+    def tombstone_memory(self, memory_id: str, reason: str) -> bool:
+        """
+        Mark a memory as tombstoned (inaccessible but retained for audit).
+
+        Tombstoned memories:
+        - Cannot be recalled
+        - Appear in searches with [TOMBSTONED] marker
+        - Retain their audit trail
+        - Can be referenced but not accessed
+
+        Args:
+            memory_id: The memory to tombstone
+            reason: Reason for tombstoning
+
+        Returns:
+            bool: True if tombstoned successfully
+        """
+        from .physical_token import require_physical_token
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT classification, tombstoned FROM memories WHERE memory_id = ?
+        """, (memory_id,))
+        row = c.fetchone()
+
+        if not row:
+            conn.close()
+            raise ValueError(f"Memory '{memory_id}' not found")
+
+        classification, already_tombstoned = row
+
+        if already_tombstoned:
+            conn.close()
+            print(f"Memory {memory_id} is already tombstoned")
+            return False
+
+        print("\n" + "="*50)
+        print(f"TOMBSTONE MEMORY: {memory_id}")
+        print("="*50)
+        print(f"\nClassification: Level {classification}")
+        print(f"Reason: {reason}")
+        print("\nThis will mark the memory as INACCESSIBLE.")
+        print("The memory will be retained for audit but cannot be recalled.")
+
+        # Level 3+ requires physical token
+        if classification >= 3:
+            print("\nPhysical token required for Level 3+ tombstoning.\n")
+            if not require_physical_token("Tombstone high-security memory"):
+                conn.close()
+                print("Tombstone aborted: Physical token required")
+                return False
+
+        confirm = input("Type 'TOMBSTONE' to confirm: ").strip()
+        if confirm != "TOMBSTONE":
+            conn.close()
+            print("Tombstone aborted")
+            return False
+
+        timestamp = datetime.utcnow().isoformat() + "Z"
+
+        c.execute("""
+            UPDATE memories SET
+                tombstoned = 1,
+                tombstoned_at = ?,
+                tombstone_reason = ?
+            WHERE memory_id = ?
+        """, (timestamp, reason, memory_id))
+
+        conn.commit()
+        conn.close()
+
+        print("\n" + "="*50)
+        print(f"MEMORY TOMBSTONED")
+        print(f"  ID: {memory_id}")
+        print(f"  Reason: {reason}")
+        print(f"  Timestamp: {timestamp}")
+        print("="*50 + "\n")
+
+        return True
+
+    def get_tombstoned_memories(self) -> list:
+        """
+        List all tombstoned memories.
+
+        Returns:
+            List of tombstoned memory summaries
+        """
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT memory_id, classification, tombstoned_at, tombstone_reason, created_at
+            FROM memories
+            WHERE tombstoned = 1
+            ORDER BY tombstoned_at DESC
+        """)
+
+        results = []
+        for row in c.fetchall():
+            results.append({
+                "memory_id": row[0],
+                "classification": row[1],
+                "tombstoned_at": row[2],
+                "reason": row[3],
+                "created_at": row[4]
+            })
+
+        conn.close()
+        return results
+
+    def is_tombstoned(self, memory_id: str) -> tuple:
+        """
+        Check if a memory is tombstoned.
+
+        Returns:
+            tuple: (is_tombstoned, tombstoned_at, reason)
+        """
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT tombstoned, tombstoned_at, tombstone_reason
+            FROM memories WHERE memory_id = ?
+        """, (memory_id,))
+        row = c.fetchone()
+        conn.close()
+
+        if not row:
+            raise ValueError(f"Memory '{memory_id}' not found")
+
+        return bool(row[0]), row[1], row[2]
