@@ -136,7 +136,11 @@ class MemoryVault:
         obj.content_hash = hashlib.sha256(obj.content_plaintext).hexdigest()
 
         c.execute('''
-            INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO memories (
+                memory_id, created_at, created_by, classification, encryption_profile,
+                content_hash, ciphertext, nonce, salt, intent_ref, value_metadata,
+                access_policy, audit_proof, sealed_blob
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             obj.memory_id,
             obj.created_at.isoformat(),
@@ -171,15 +175,14 @@ class MemoryVault:
             conn.close()
             raise ValueError("Memory not found")
 
-        # Check if memory is tombstoned (columns: tombstoned at index 14, reason at 16)
-        c.execute("SELECT tombstoned, tombstone_reason FROM memories WHERE memory_id = ?", (memory_id,))
-        tomb_row = c.fetchone()
-        if tomb_row and tomb_row[0]:
-            conn.close()
-            raise PermissionError(f"Memory is TOMBSTONED: {tomb_row[1] or 'No reason provided'}")
-
+        # Capture column names immediately after query
         columns = [d[0] for d in c.description]
         row_dict = dict(zip(columns, row))
+
+        # Check if memory is tombstoned
+        if row_dict.get("tombstoned"):
+            conn.close()
+            raise PermissionError(f"Memory is TOMBSTONED: {row_dict.get('tombstone_reason') or 'No reason provided'}")
 
         classification = row_dict["classification"]
         encryption_profile = row_dict["encryption_profile"]
@@ -526,7 +529,11 @@ class MemoryVault:
                 memory["sealed_blob"] = base64.b64decode(memory["sealed_blob"])
 
             c.execute("""
-                INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO memories (
+                    memory_id, created_at, created_by, classification, encryption_profile,
+                    content_hash, ciphertext, nonce, salt, intent_ref, value_metadata,
+                    access_policy, audit_proof, sealed_blob
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 memory["memory_id"], memory["created_at"], memory["created_by"],
                 memory["classification"], memory["encryption_profile"], memory["content_hash"],
