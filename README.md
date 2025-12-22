@@ -195,7 +195,7 @@ memory_vault/
 ├── merkle.py         - Merkle tree construction & verification
 ├── boundry.py        - Boundary daemon integration
 ├── models.py         - Dataclasses (MemoryObject, etc.)
-├── token.py          - Physical token authentication
+├── physical_token.py - Physical token authentication
 ├── deadman.py        - Dead-man switch functionality
 └── cli.py            - Command-line interface
 ```

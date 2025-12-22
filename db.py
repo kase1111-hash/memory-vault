@@ -103,6 +103,17 @@ def init_db():
         )
     ''')
 
+    # --- Vault State Table (for Lockdown Mode) ---
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS vault_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            lockdown INTEGER NOT NULL DEFAULT 0,
+            lockdown_since TEXT,
+            lockdown_reason TEXT
+        )
+    ''')
+    c.execute("INSERT OR IGNORE INTO vault_state (id, lockdown) VALUES (1, 0)")
+
     # --- Safe Migrations ---
     c.execute("PRAGMA table_info(memories)")
     columns = [col[1] for col in c.fetchall()]
@@ -112,6 +123,16 @@ def init_db():
     if 'audit_proof' not in columns:
         c.execute("ALTER TABLE memories ADD COLUMN audit_proof TEXT")
         print("Added 'audit_proof' column")
+
+    # --- Profile Key Rotation Columns ---
+    c.execute("PRAGMA table_info(encryption_profiles)")
+    profile_columns = [col[1] for col in c.fetchall()]
+    if 'last_rotation' not in profile_columns:
+        c.execute("ALTER TABLE encryption_profiles ADD COLUMN last_rotation TEXT")
+        print("Added 'last_rotation' column to encryption_profiles")
+    if 'rotation_count' not in profile_columns:
+        c.execute("ALTER TABLE encryption_profiles ADD COLUMN rotation_count INTEGER DEFAULT 0")
+        print("Added 'rotation_count' column to encryption_profiles")
 
     # --- Performance Indexes ---
     indexes = [

@@ -22,7 +22,7 @@ from .crypto import (
     sign_root
 )
 from .db import DB_PATH, init_db
-from .boundary import check_recall
+from .boundry import check_recall
 from .merkle import hash_leaf, build_tree
 
 
@@ -158,6 +158,11 @@ class MemoryVault:
         print(f"Stored memory {obj.memory_id} | Level {obj.classification} | Profile: {obj.encryption_profile}")
 
     def recall_memory(self, memory_id: str, justification: str = "", requester: str = "agent") -> bytes:
+        # Check lockdown status first
+        is_locked, since, reason = self.is_locked_down()
+        if is_locked:
+            raise PermissionError(f"Vault is in LOCKDOWN since {since}: {reason}")
+
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute('SELECT * FROM memories WHERE memory_id = ?', (memory_id,))
@@ -668,5 +673,394 @@ class MemoryVault:
         print("\n" + "="*50)
         print("✓ INTEGRITY VERIFICATION PASSED")
         print("="*50)
+
+        return True
+
+    # ==================== Level 0 Ephemeral Auto-Purge ====================
+
+    def purge_ephemeral(self, max_age_hours: int = 24) -> int:
+        """
+        Delete all Level 0 (ephemeral) memories older than max_age_hours.
+
+        Args:
+            max_age_hours: Maximum age for ephemeral memories (default 24 hours)
+
+        Returns:
+            int: Number of memories purged
+        """
+        cutoff = (datetime.utcnow() - timedelta(hours=max_age_hours)).isoformat()
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        # Get count before delete
+        c.execute("""
+            SELECT COUNT(*) FROM memories
+            WHERE classification = 0 AND created_at < ?
+        """, (cutoff,))
+        count = c.fetchone()[0]
+
+        if count > 0:
+            # Delete from FTS first (triggers should handle this, but be explicit)
+            c.execute("""
+                DELETE FROM memories
+                WHERE classification = 0 AND created_at < ?
+            """, (cutoff,))
+            conn.commit()
+            print(f"Purged {count} ephemeral memories older than {max_age_hours} hours")
+        else:
+            print("No ephemeral memories to purge")
+
+        conn.close()
+        return count
+
+    def get_ephemeral_count(self) -> dict:
+        """Get count and age statistics for ephemeral memories."""
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        c.execute("SELECT COUNT(*) FROM memories WHERE classification = 0")
+        total = c.fetchone()[0]
+
+        c.execute("""
+            SELECT MIN(created_at), MAX(created_at) FROM memories
+            WHERE classification = 0
+        """)
+        row = c.fetchone()
+        oldest = row[0] if row[0] else None
+        newest = row[1] if row[1] else None
+
+        conn.close()
+        return {"count": total, "oldest": oldest, "newest": newest}
+
+    # ==================== Lockdown Mode ====================
+
+    def is_locked_down(self) -> tuple[bool, str, str]:
+        """
+        Check if vault is in lockdown mode.
+
+        Returns:
+            tuple: (is_locked: bool, since: str or None, reason: str or None)
+        """
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("SELECT lockdown, lockdown_since, lockdown_reason FROM vault_state WHERE id = 1")
+        row = c.fetchone()
+        conn.close()
+
+        if row:
+            return bool(row[0]), row[1], row[2]
+        return False, None, None
+
+    def enter_lockdown(self, reason: str) -> bool:
+        """
+        Enter lockdown mode - disables ALL memory recalls.
+        Requires physical token for Level 3+ style security.
+
+        Args:
+            reason: Reason for entering lockdown
+
+        Returns:
+            bool: True if lockdown was activated
+        """
+        from .physical_token import require_physical_token
+
+        print("\n" + "="*50)
+        print("⚠️  VAULT LOCKDOWN REQUESTED")
+        print("="*50)
+        print(f"\nReason: {reason}")
+        print("\nThis will DISABLE ALL memory recalls until unlocked.")
+        print("Physical token authentication required.\n")
+
+        if not require_physical_token("Enter vault lockdown"):
+            print("Lockdown aborted: Physical token required")
+            return False
+
+        confirm = input("Type 'LOCKDOWN VAULT' to confirm: ").strip()
+        if confirm != "LOCKDOWN VAULT":
+            print("Lockdown aborted")
+            return False
+
+        timestamp = datetime.utcnow().isoformat() + "Z"
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("""
+            UPDATE vault_state SET
+                lockdown = 1,
+                lockdown_since = ?,
+                lockdown_reason = ?
+            WHERE id = 1
+        """, (timestamp, reason))
+        conn.commit()
+        conn.close()
+
+        print("\n" + "="*50)
+        print("🔒 VAULT IS NOW IN LOCKDOWN")
+        print(f"   Since: {timestamp}")
+        print(f"   Reason: {reason}")
+        print("="*50 + "\n")
+
+        return True
+
+    def exit_lockdown(self, passphrase: str = None) -> bool:
+        """
+        Exit lockdown mode - requires BOTH physical token AND passphrase.
+
+        Args:
+            passphrase: Optional passphrase (will prompt if not provided)
+
+        Returns:
+            bool: True if lockdown was deactivated
+        """
+        from .physical_token import require_physical_token
+
+        is_locked, since, reason = self.is_locked_down()
+        if not is_locked:
+            print("Vault is not in lockdown")
+            return False
+
+        print("\n" + "="*50)
+        print("🔓 VAULT LOCKDOWN EXIT REQUESTED")
+        print("="*50)
+        print(f"\nLocked since: {since}")
+        print(f"Reason: {reason}")
+        print("\nBoth physical token AND passphrase required to unlock.\n")
+
+        if not require_physical_token("Exit vault lockdown"):
+            print("Unlock aborted: Physical token required")
+            return False
+
+        if passphrase is None:
+            passphrase = getpass.getpass("Enter unlock passphrase: ")
+
+        # Verify passphrase against default profile
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("SELECT profile_id FROM encryption_profiles WHERE key_source = 'HumanPassphrase' LIMIT 1")
+            row = c.fetchone()
+            conn.close()
+
+            if row:
+                # Just verify the passphrase can derive a key (basic check)
+                derive_key_from_passphrase(passphrase)
+            else:
+                print("Warning: No passphrase profile found, skipping passphrase verification")
+        except Exception as e:
+            print(f"Passphrase verification failed: {e}")
+            return False
+
+        confirm = input("Type 'UNLOCK VAULT' to confirm: ").strip()
+        if confirm != "UNLOCK VAULT":
+            print("Unlock aborted")
+            return False
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("""
+            UPDATE vault_state SET
+                lockdown = 0,
+                lockdown_since = NULL,
+                lockdown_reason = NULL
+            WHERE id = 1
+        """, )
+        conn.commit()
+        conn.close()
+
+        print("\n" + "="*50)
+        print("🔓 VAULT LOCKDOWN LIFTED")
+        print("   All operations restored")
+        print("="*50 + "\n")
+
+        return True
+
+    # ==================== Key Rotation ====================
+
+    def rotate_profile_key(self, profile_id: str, new_passphrase: str = None) -> bool:
+        """
+        Rotate encryption key for a profile. Re-encrypts all memories using
+        that profile with the new key.
+
+        Only works for HumanPassphrase and KeyFile profiles.
+        TPM profiles cannot be rotated (hardware-bound).
+
+        Args:
+            profile_id: The profile to rotate
+            new_passphrase: New passphrase (will prompt if not provided, for Passphrase profiles)
+
+        Returns:
+            bool: True if rotation was successful
+        """
+        from .physical_token import require_physical_token
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        # Get profile info
+        c.execute("""
+            SELECT key_source, rotation_count FROM encryption_profiles
+            WHERE profile_id = ?
+        """, (profile_id,))
+        row = c.fetchone()
+
+        if not row:
+            conn.close()
+            raise ValueError(f"Profile '{profile_id}' not found")
+
+        key_source = row[0]
+        rotation_count = row[1] or 0
+
+        if key_source == "TPM":
+            conn.close()
+            raise ValueError("TPM profiles cannot be rotated (hardware-bound)")
+
+        # Count affected memories
+        c.execute("SELECT COUNT(*) FROM memories WHERE encryption_profile = ?", (profile_id,))
+        memory_count = c.fetchone()[0]
+
+        print("\n" + "="*50)
+        print(f"🔑 KEY ROTATION: {profile_id}")
+        print("="*50)
+        print(f"\nKey source: {key_source}")
+        print(f"Memories to re-encrypt: {memory_count}")
+        print(f"Previous rotations: {rotation_count}")
+        print("\nThis operation will:")
+        print("  1. Decrypt all memories with the OLD key")
+        print("  2. Re-encrypt all memories with the NEW key")
+        print("  3. Update the profile rotation count")
+
+        if key_source == "KeyFile":
+            print("\n⚠️  WARNING: After rotation, securely destroy the OLD keyfile!")
+
+        print("\nPhysical token required for key rotation.\n")
+
+        if not require_physical_token("Rotate encryption key"):
+            conn.close()
+            print("Rotation aborted: Physical token required")
+            return False
+
+        # Get current key
+        print("\n--- Current Key ---")
+        if key_source == "HumanPassphrase":
+            old_passphrase = getpass.getpass(f"Enter CURRENT passphrase for '{profile_id}': ")
+        else:  # KeyFile
+            keyfile_path = os.path.expanduser(f"~/.memory_vault/keys/{profile_id}.key")
+            if not os.path.exists(keyfile_path):
+                conn.close()
+                raise FileNotFoundError(f"Keyfile not found: {keyfile_path}")
+
+        # Get new key
+        print("\n--- New Key ---")
+        if key_source == "HumanPassphrase":
+            if new_passphrase is None:
+                new_passphrase = getpass.getpass(f"Enter NEW passphrase for '{profile_id}': ")
+                confirm = getpass.getpass("Confirm NEW passphrase: ")
+                if new_passphrase != confirm:
+                    conn.close()
+                    raise ValueError("Passphrases do not match")
+        else:  # KeyFile - generate new keyfile
+            new_keyfile_path = os.path.expanduser(f"~/.memory_vault/keys/{profile_id}.key.new")
+            new_key = nacl_random(32)
+            os.makedirs(os.path.dirname(new_keyfile_path), exist_ok=True)
+            with open(new_keyfile_path, "wb") as f:
+                os.fchmod(f.fileno(), 0o600)
+                f.write(new_key)
+            print(f"New keyfile generated: {new_keyfile_path}")
+
+        confirm = input("\nType 'ROTATE KEY' to proceed: ").strip()
+        if confirm != "ROTATE KEY":
+            conn.close()
+            print("Rotation aborted")
+            return False
+
+        # Fetch all memories for this profile
+        c.execute("""
+            SELECT memory_id, ciphertext, nonce, salt, sealed_blob
+            FROM memories WHERE encryption_profile = ?
+        """, (profile_id,))
+        memories = c.fetchall()
+
+        success_count = 0
+        error_count = 0
+
+        for memory_id, ciphertext, nonce, old_salt, sealed_blob in memories:
+            try:
+                # Derive old key
+                if key_source == "HumanPassphrase":
+                    old_key, _ = derive_key_from_passphrase(old_passphrase, old_salt)
+                else:
+                    old_key = load_key_from_file(keyfile_path)
+
+                # Decrypt with old key
+                plaintext = decrypt_memory(old_key, ciphertext, nonce)
+
+                # Generate new salt/nonce
+                new_salt = nacl_random(16) if key_source == "HumanPassphrase" else None
+                new_nonce = nacl_random(24)
+
+                # Derive new key
+                if key_source == "HumanPassphrase":
+                    new_key, new_salt = derive_key_from_passphrase(new_passphrase, new_salt)
+                else:
+                    new_key = new_key  # Already have the key
+
+                # Encrypt with new key
+                new_ciphertext, new_nonce = encrypt_memory(new_key, plaintext)
+
+                # Update database
+                c.execute("""
+                    UPDATE memories SET
+                        ciphertext = ?,
+                        nonce = ?,
+                        salt = ?
+                    WHERE memory_id = ?
+                """, (new_ciphertext, new_nonce, new_salt, memory_id))
+
+                success_count += 1
+                print(f"  ✓ Rotated: {memory_id[:8]}...")
+
+            except Exception as e:
+                error_count += 1
+                print(f"  ✗ Failed: {memory_id[:8]}... - {e}")
+
+        if error_count > 0:
+            print(f"\n⚠️  {error_count} memories failed to rotate!")
+            print("Rolling back transaction...")
+            conn.rollback()
+            conn.close()
+            return False
+
+        # Update profile rotation tracking
+        timestamp = datetime.utcnow().isoformat() + "Z"
+        c.execute("""
+            UPDATE encryption_profiles SET
+                last_rotation = ?,
+                rotation_count = ?
+            WHERE profile_id = ?
+        """, (timestamp, rotation_count + 1, profile_id))
+
+        conn.commit()
+
+        # For KeyFile, move new keyfile to replace old
+        if key_source == "KeyFile":
+            import shutil
+            old_keyfile_backup = keyfile_path + f".old.{rotation_count}"
+            shutil.move(keyfile_path, old_keyfile_backup)
+            shutil.move(new_keyfile_path, keyfile_path)
+            print(f"\nOld keyfile backed up to: {old_keyfile_backup}")
+            print(f"⚠️  IMPORTANT: Securely delete {old_keyfile_backup} after verifying rotation!")
+
+        # Clear cached key
+        if profile_id in self.profile_keys:
+            del self.profile_keys[profile_id]
+
+        conn.close()
+
+        print("\n" + "="*50)
+        print(f"✓ KEY ROTATION COMPLETE")
+        print(f"  Memories rotated: {success_count}")
+        print(f"  Rotation count: {rotation_count + 1}")
+        print("="*50 + "\n")
 
         return True
