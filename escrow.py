@@ -22,6 +22,7 @@ import uuid
 import secrets
 import hashlib
 import base64
+import re
 from datetime import datetime
 from typing import List, Tuple, Optional
 
@@ -31,6 +32,16 @@ from nacl.encoding import Base64Encoder
 
 from .db import DB_PATH
 from .crypto import derive_key_from_passphrase, encrypt_memory, decrypt_memory
+
+# Security: Profile ID validation pattern to prevent path traversal
+_PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
+
+def _validate_profile_id(profile_id: str) -> None:
+    """Validate profile_id to prevent path traversal attacks."""
+    if not profile_id or len(profile_id) > 64:
+        raise ValueError("Profile ID must be 1-64 characters")
+    if not _PROFILE_ID_PATTERN.match(profile_id):
+        raise ValueError("Profile ID must start with alphanumeric and contain only alphanumeric, underscore, or hyphen")
 
 
 # Shamir's Secret Sharing implementation
@@ -182,6 +193,9 @@ def create_escrow(
         escrow_id: Unique identifier for this escrow
     """
     from .physical_token import require_physical_token
+
+    # Security: Validate profile_id to prevent path traversal
+    _validate_profile_id(profile_id)
 
     total_shards = len(recipients)
 
