@@ -29,9 +29,15 @@ from typing import List, Optional, Dict, Any, Tuple
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
-from .db import DB_PATH
-from .crypto import load_or_create_signing_key, sign_root
-from .natlangchain import anchor_effort_receipt
+# Support both package and direct imports
+try:
+    from .db import DB_PATH
+    from .crypto import load_or_create_signing_key, sign_root
+    from .natlangchain import anchor_effort_receipt
+except ImportError:
+    from db import DB_PATH
+    from crypto import load_or_create_signing_key, sign_root
+    from natlangchain import anchor_effort_receipt
 
 
 # ==================== Signal Types ====================

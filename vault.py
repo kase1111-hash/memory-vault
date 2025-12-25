@@ -11,34 +11,60 @@ from datetime import datetime, timedelta
 
 from nacl.utils import random as nacl_random
 
-from .models import MemoryObject
-from .crypto import (
-    derive_key_from_passphrase,
-    load_key_from_file,
-    encrypt_memory,
-    decrypt_memory,
-    generate_keyfile,
-    load_or_create_signing_key,
-    sign_root
-)
-from .db import DB_PATH, init_db
-from .boundry import check_recall
-from .merkle import hash_leaf, build_tree
-
 import re
+
+# Support both package and direct imports
+try:
+    from .models import MemoryObject
+    from .crypto import (
+        derive_key_from_passphrase,
+        load_key_from_file,
+        encrypt_memory,
+        decrypt_memory,
+        generate_keyfile,
+        load_or_create_signing_key,
+        sign_root
+    )
+    from .db import DB_PATH, init_db
+    from .boundry import check_recall
+    from .merkle import hash_leaf, build_tree
+except ImportError:
+    from models import MemoryObject
+    from crypto import (
+        derive_key_from_passphrase,
+        load_key_from_file,
+        encrypt_memory,
+        decrypt_memory,
+        generate_keyfile,
+        load_or_create_signing_key,
+        sign_root
+    )
+    from db import DB_PATH, init_db
+    from boundry import check_recall
+    from merkle import hash_leaf, build_tree
 
 # Optional integration imports
 try:
     from .natlangchain import anchor_memory_to_chain, verify_memory_anchor
-    NATLANGCHAIN_AVAILABLE = True
 except ImportError:
-    NATLANGCHAIN_AVAILABLE = False
+    try:
+        from natlangchain import anchor_memory_to_chain, verify_memory_anchor
+        NATLANGCHAIN_AVAILABLE = True
+    except ImportError:
+        NATLANGCHAIN_AVAILABLE = False
+else:
+    NATLANGCHAIN_AVAILABLE = True
 
 try:
     from .agent_os import check_agent_permission, GovernanceLogger, BoundaryDaemon
-    AGENT_OS_AVAILABLE = True
 except ImportError:
-    AGENT_OS_AVAILABLE = False
+    try:
+        from agent_os import check_agent_permission, GovernanceLogger, BoundaryDaemon
+        AGENT_OS_AVAILABLE = True
+    except ImportError:
+        AGENT_OS_AVAILABLE = False
+else:
+    AGENT_OS_AVAILABLE = True
 
 # Security: Validate profile_id to prevent path traversal
 PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
@@ -68,7 +94,10 @@ class MemoryVault:
         exportable: bool = False,
         generate_keyfile: bool = False
     ) -> None:
-        from .crypto import TPM_AVAILABLE  # Local import to avoid circular issues
+        try:
+            from .crypto import TPM_AVAILABLE
+        except ImportError:
+            from crypto import TPM_AVAILABLE
 
         # Security: Validate profile_id to prevent path traversal
         validate_profile_id(profile_id)
@@ -88,8 +117,11 @@ class MemoryVault:
             raise ValueError(f"Profile '{profile_id}' already exists")
 
         if key_source == "KeyFile" and generate_keyfile:
-            from .crypto import generate_keyfile
-            keyfile_path = generate_keyfile(profile_id)
+            try:
+                from .crypto import generate_keyfile as make_keyfile
+            except ImportError:
+                from crypto import generate_keyfile as make_keyfile
+            keyfile_path = make_keyfile(profile_id)
             print(f"Generated keyfile: {keyfile_path}")
 
         c.execute('''
@@ -152,7 +184,10 @@ class MemoryVault:
         nonce = None
 
         if key_source == "TPM":
-            from .crypto import tpm_create_and_persist_primary, tpm_generate_sealed_key
+            try:
+                from .crypto import tpm_create_and_persist_primary, tpm_generate_sealed_key
+            except ImportError:
+                from crypto import tpm_create_and_persist_primary, tpm_generate_sealed_key
             tpm_create_and_persist_primary()
             ephemeral_key = nacl_random(32)
             ciphertext, nonce = encrypt_memory(ephemeral_key, obj.content_plaintext)
@@ -266,7 +301,10 @@ class MemoryVault:
 
         try:
             if key_source == "TPM":
-                from .crypto import tpm_unseal_key
+                try:
+                    from .crypto import tpm_unseal_key
+                except ImportError:
+                    from crypto import tpm_unseal_key
                 if not sealed_blob:
                     raise PermissionError("TPM sealed key missing")
                 key = tpm_unseal_key(sealed_blob)
@@ -625,7 +663,10 @@ class MemoryVault:
 
         # Verify signature
         print("2. Verifying cryptographic signature...")
-        from .crypto import get_public_verify_key, verify_signature
+        try:
+            from .crypto import get_public_verify_key, verify_signature
+        except ImportError:
+            from crypto import get_public_verify_key, verify_signature
 
         try:
             vk = get_public_verify_key()
