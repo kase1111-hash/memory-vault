@@ -146,6 +146,12 @@ def init_db():
     if 'tombstone_reason' not in memory_columns:
         c.execute("ALTER TABLE memories ADD COLUMN tombstone_reason TEXT")
         print("Added 'tombstone_reason' column to memories")
+    if 'effort_receipt_id' not in memory_columns:
+        c.execute("ALTER TABLE memories ADD COLUMN effort_receipt_id TEXT")
+        print("Added 'effort_receipt_id' column to memories")
+    if 'chain_anchor_id' not in memory_columns:
+        c.execute("ALTER TABLE memories ADD COLUMN chain_anchor_id TEXT")
+        print("Added 'chain_anchor_id' column to memories")
 
     # --- Escrow Shards Table ---
     c.execute('''
@@ -162,16 +168,82 @@ def init_db():
         )
     ''')
 
+    # --- Effort Tracking Tables (MP-02 Protocol) ---
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS effort_signals (
+            signal_id TEXT PRIMARY KEY,
+            segment_id TEXT,
+            signal_type TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            metadata TEXT
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS effort_segments (
+            segment_id TEXT PRIMARY KEY,
+            start_time TEXT NOT NULL,
+            end_time TEXT,
+            boundary_reason TEXT,
+            signal_count INTEGER DEFAULT 0,
+            metadata TEXT,
+            validated INTEGER DEFAULT 0
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS effort_receipts (
+            receipt_id TEXT PRIMARY KEY,
+            segment_id TEXT NOT NULL,
+            memory_id TEXT,
+            time_bounds_start TEXT NOT NULL,
+            time_bounds_end TEXT NOT NULL,
+            signal_count INTEGER NOT NULL,
+            signal_hashes TEXT NOT NULL,
+            effort_summary TEXT,
+            validation_result TEXT,
+            created_at TEXT NOT NULL,
+            signature TEXT NOT NULL,
+            ledger_entry_id TEXT,
+            ledger_proof TEXT
+        )
+    ''')
+
+    # --- NatLangChain Anchor Records ---
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS chain_anchors (
+            anchor_id TEXT PRIMARY KEY,
+            memory_id TEXT NOT NULL,
+            entry_id TEXT NOT NULL,
+            anchor_type TEXT NOT NULL,
+            anchored_at TEXT NOT NULL,
+            block_hash TEXT,
+            block_height INTEGER,
+            verified INTEGER DEFAULT 0,
+            metadata TEXT
+        )
+    ''')
+
     # --- Performance Indexes ---
     indexes = [
         ("idx_memories_classification", "CREATE INDEX idx_memories_classification ON memories (classification)"),
         ("idx_memories_encryption_profile", "CREATE INDEX idx_memories_encryption_profile ON memories (encryption_profile)"),
-        ("idx_recall_log_memory_approved_timestamp", 
+        ("idx_recall_log_memory_approved_timestamp",
          "CREATE INDEX idx_recall_log_memory_approved_timestamp ON recall_log (memory_id, approved, timestamp DESC)"),
         ("idx_recall_log_timestamp", "CREATE INDEX idx_recall_log_timestamp ON recall_log (timestamp)"),
         ("idx_recall_log_approved", "CREATE INDEX idx_recall_log_approved ON recall_log (approved)"),
         ("idx_recall_log_requester", "CREATE INDEX idx_recall_log_requester ON recall_log (requester)"),
         ("idx_merkle_leaves_request_id", "CREATE UNIQUE INDEX idx_merkle_leaves_request_id ON merkle_leaves (request_id)"),
+        # Effort tracking indexes
+        ("idx_effort_signals_segment", "CREATE INDEX idx_effort_signals_segment ON effort_signals (segment_id)"),
+        ("idx_effort_signals_timestamp", "CREATE INDEX idx_effort_signals_timestamp ON effort_signals (timestamp)"),
+        ("idx_effort_segments_validated", "CREATE INDEX idx_effort_segments_validated ON effort_segments (validated)"),
+        ("idx_effort_receipts_memory", "CREATE INDEX idx_effort_receipts_memory ON effort_receipts (memory_id)"),
+        ("idx_effort_receipts_segment", "CREATE INDEX idx_effort_receipts_segment ON effort_receipts (segment_id)"),
+        # NatLangChain anchor indexes
+        ("idx_chain_anchors_memory", "CREATE INDEX idx_chain_anchors_memory ON chain_anchors (memory_id)"),
+        ("idx_chain_anchors_entry", "CREATE INDEX idx_chain_anchors_entry ON chain_anchors (entry_id)"),
     ]
     for name, sql in indexes:
         if not _index_exists(c, name):

@@ -177,6 +177,66 @@ def main():
     p_escrow_delete = subparsers.add_parser("escrow-delete", help="Delete an escrow")
     p_escrow_delete.add_argument("escrow_id")
 
+    # --- NatLangChain Integration ---
+    p_chain_anchor = subparsers.add_parser("chain-anchor", help="Anchor memory to NatLangChain blockchain")
+    p_chain_anchor.add_argument("memory_id")
+    p_chain_anchor.add_argument("--author", default="memory_vault", help="Author identifier")
+
+    p_chain_verify = subparsers.add_parser("chain-verify", help="Verify memory anchor on NatLangChain")
+    p_chain_verify.add_argument("memory_id")
+
+    p_chain_history = subparsers.add_parser("chain-history", help="Get NatLangChain history for a memory")
+    p_chain_history.add_argument("memory_id")
+
+    p_chain_status = subparsers.add_parser("chain-status", help="Check NatLangChain connection status")
+
+    # --- Effort Tracking (MP-02) ---
+    p_effort_start = subparsers.add_parser("effort-start", help="Start effort observation segment")
+    p_effort_start.add_argument("--reason", default="manual_start", help="Reason for starting")
+
+    p_effort_stop = subparsers.add_parser("effort-stop", help="Stop current effort observation")
+    p_effort_stop.add_argument("--reason", default="manual_stop", help="Reason for stopping")
+
+    p_effort_signal = subparsers.add_parser("effort-signal", help="Record an effort signal")
+    p_effort_signal.add_argument("signal_type", choices=[
+        "text_edit", "command", "tool_interaction", "voice_transcript",
+        "file_operation", "search_query", "decision", "annotation", "pause", "marker"
+    ])
+    p_effort_signal.add_argument("content")
+    p_effort_signal.add_argument("--metadata", default="{}", help="JSON metadata")
+
+    p_effort_marker = subparsers.add_parser("effort-marker", help="Add explicit boundary marker")
+    p_effort_marker.add_argument("description")
+
+    p_effort_status = subparsers.add_parser("effort-status", help="Show current effort observation status")
+
+    p_effort_validate = subparsers.add_parser("effort-validate", help="Validate an effort segment")
+    p_effort_validate.add_argument("segment_id")
+
+    p_effort_receipt = subparsers.add_parser("effort-receipt", help="Generate effort receipt for a segment")
+    p_effort_receipt.add_argument("segment_id")
+    p_effort_receipt.add_argument("--memory-id", help="Link to memory ID")
+    p_effort_receipt.add_argument("--no-anchor", action="store_true", help="Don't anchor to NatLangChain")
+
+    p_effort_link = subparsers.add_parser("effort-link", help="Link effort receipt to memory")
+    p_effort_link.add_argument("receipt_id")
+    p_effort_link.add_argument("memory_id")
+
+    p_effort_pending = subparsers.add_parser("effort-pending", help="List pending (unvalidated) segments")
+
+    p_effort_get = subparsers.add_parser("effort-get", help="Get effort receipts for a memory")
+    p_effort_get.add_argument("memory_id")
+
+    # --- Agent-OS Governance ---
+    p_governance = subparsers.add_parser("governance-status", help="Show governance summary")
+
+    p_boundary = subparsers.add_parser("boundary-status", help="Show Agent-OS boundary daemon status")
+
+    p_governance_check = subparsers.add_parser("governance-check", help="Check governance permission")
+    p_governance_check.add_argument("agent_id")
+    p_governance_check.add_argument("action", choices=["recall", "store", "delete"])
+    p_governance_check.add_argument("memory_id")
+
     args = parser.parse_args()
     vault = MemoryVault()
     init_deadman_switch()  # Ensure tables exist
@@ -573,6 +633,289 @@ def main():
             sys.exit(0 if result else 1)
         except Exception as e:
             print(f"Delete failed: {e}")
+            sys.exit(1)
+
+    # ==================== NatLangChain Commands ====================
+
+    elif args.command == "chain-anchor":
+        try:
+            entry_id = vault.anchor_to_chain(args.memory_id, author=args.author)
+            if entry_id:
+                print(f"\n✓ Memory anchored to NatLangChain")
+                print(f"  Entry ID: {entry_id}\n")
+            else:
+                print("\n✗ Failed to anchor memory\n")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Anchor failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "chain-verify":
+        try:
+            result = vault.verify_chain_anchor(args.memory_id)
+            print(f"\n=== Chain Verification: {args.memory_id} ===\n")
+            if result:
+                print(f"Entry ID: {result.get('entry_id', 'N/A')}")
+                print(f"Anchored At: {result.get('anchored_at', 'N/A')}")
+                print(f"Verified: {'✓ Yes' if result.get('verified') else '✗ No'}")
+                if result.get('block_proof'):
+                    print(f"Block Hash: {result['block_proof'].get('block_hash', 'N/A')[:16]}...")
+            else:
+                print("Memory not anchored to chain")
+            print()
+        except Exception as e:
+            print(f"Verification failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "chain-history":
+        try:
+            history = vault.get_chain_history(args.memory_id)
+            print(f"\n=== Chain History: {args.memory_id} ===\n")
+            if not history:
+                print("No chain entries found")
+            else:
+                for entry in history:
+                    verified = "✓" if entry.get('verified') else "○"
+                    print(f"{verified} {entry['anchor_type']} | {entry['anchored_at']}")
+                    print(f"    Entry: {entry['entry_id'][:16]}...")
+                    print()
+        except Exception as e:
+            print(f"History lookup failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "chain-status":
+        try:
+            from memory_vault.natlangchain import NatLangChainClient
+            client = NatLangChainClient()
+            print("\n=== NatLangChain Status ===\n")
+            if client.health_check():
+                print(f"✓ Connected to: {client.api_url}")
+                print(f"  Version: {client.get_version()}")
+                stats = client.get_chain_stats()
+                if stats:
+                    print(f"  Blocks: {stats.get('block_count', 'N/A')}")
+                    print(f"  Entries: {stats.get('entry_count', 'N/A')}")
+            else:
+                print(f"✗ Cannot connect to NatLangChain at {client.api_url}")
+                print("  Set NATLANGCHAIN_API_URL environment variable to configure")
+            print()
+        except Exception as e:
+            print(f"Status check failed: {e}")
+
+    # ==================== Effort Tracking Commands ====================
+
+    elif args.command == "effort-start":
+        from memory_vault.effort import EffortObserver
+        try:
+            observer = EffortObserver()
+            segment_id = observer.start_observation(reason=args.reason)
+            print(f"\n✓ Effort observation started")
+            print(f"  Segment ID: {segment_id}\n")
+        except Exception as e:
+            print(f"Start failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "effort-stop":
+        from memory_vault.effort import EffortObserver
+        try:
+            observer = EffortObserver()
+            segment = observer.stop_observation(reason=args.reason)
+            if segment:
+                print(f"\n✓ Effort observation stopped")
+                print(f"  Segment ID: {segment.segment_id}")
+                print(f"  Signals: {segment.signal_count()}")
+                print(f"  Duration: {segment.duration_seconds():.1f}s\n")
+            else:
+                print("\nNo active observation to stop\n")
+        except Exception as e:
+            print(f"Stop failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "effort-signal":
+        from memory_vault.effort import EffortObserver, SignalType
+        try:
+            observer = EffortObserver()
+            metadata = json.loads(args.metadata)
+            signal_type = SignalType(args.signal_type)
+            signal = observer.record_signal(signal_type, args.content, metadata)
+            if signal:
+                print(f"✓ Signal recorded: {signal.signal_id[:8]}...")
+            else:
+                print("✗ Not observing. Start observation first.")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Signal recording failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "effort-marker":
+        from memory_vault.effort import EffortObserver
+        try:
+            observer = EffortObserver()
+            signal = observer.add_marker(args.description)
+            if signal:
+                print(f"✓ Marker added: {args.description}")
+            else:
+                print("✗ Not observing. Start observation first.")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Marker failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "effort-status":
+        from memory_vault.effort import EffortObserver
+        observer = EffortObserver()
+        print("\n=== Effort Observation Status ===\n")
+        if observer.is_observing():
+            print(f"✓ Observing")
+            print(f"  Segment: {observer.current_segment_id()}")
+        else:
+            print("○ Not currently observing")
+        print()
+
+    elif args.command == "effort-validate":
+        from memory_vault.effort import EffortObserver, EffortValidator
+        try:
+            observer = EffortObserver()
+            segment = observer.get_segment(args.segment_id)
+            if not segment:
+                print(f"Segment {args.segment_id} not found")
+                sys.exit(1)
+
+            validator = EffortValidator()
+            result = validator.validate_segment(segment)
+
+            print(f"\n=== Effort Validation: {args.segment_id[:12]}... ===\n")
+            print(f"Valid: {'✓ Yes' if result.is_valid else '✗ No'}")
+            print(f"Coherence: {result.coherence_score:.2f}")
+            print(f"Progression: {result.progression_score:.2f}")
+            print(f"Uncertainty: {result.uncertainty:.2f}")
+            print(f"\nSummary: {result.effort_summary}")
+            if result.dissent_notes:
+                print(f"\nNotes: {result.dissent_notes}")
+            print()
+        except Exception as e:
+            print(f"Validation failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "effort-receipt":
+        from memory_vault.effort import (
+            EffortObserver, EffortValidator, generate_receipt
+        )
+        try:
+            observer = EffortObserver()
+            segment = observer.get_segment(args.segment_id)
+            if not segment:
+                print(f"Segment {args.segment_id} not found")
+                sys.exit(1)
+
+            validator = EffortValidator()
+            validation = validator.validate_segment(segment)
+
+            if not validation.is_valid:
+                print("Warning: Segment validation failed. Generating receipt anyway.")
+
+            receipt = generate_receipt(
+                segment=segment,
+                validation=validation,
+                memory_id=args.memory_id if hasattr(args, 'memory_id') else None,
+                anchor_to_chain=not args.no_anchor
+            )
+
+            print(f"\n=== MP-02 Effort Receipt Generated ===\n")
+            print(f"Receipt ID: {receipt.receipt_id}")
+            print(f"Segment ID: {receipt.segment_id}")
+            print(f"Time Bounds: {receipt.time_bounds_start} to {receipt.time_bounds_end}")
+            print(f"Signals: {receipt.signal_count}")
+            print(f"Summary: {receipt.effort_summary[:100]}...")
+            if receipt.ledger_entry_id:
+                print(f"Chain Entry: {receipt.ledger_entry_id}")
+            print()
+        except Exception as e:
+            print(f"Receipt generation failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "effort-link":
+        try:
+            vault.link_effort_receipt(args.memory_id, args.receipt_id)
+            print(f"✓ Linked receipt {args.receipt_id[:8]}... to memory {args.memory_id[:8]}...")
+        except Exception as e:
+            print(f"Link failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "effort-pending":
+        from memory_vault.effort import list_pending_segments
+        segments = list_pending_segments()
+        print("\n=== Pending Effort Segments ===\n")
+        if not segments:
+            print("No pending segments")
+        else:
+            for seg in segments:
+                print(f"{seg['segment_id'][:12]}... | {seg['signal_count']} signals")
+                print(f"  {seg['start_time']} to {seg['end_time']}")
+                print()
+
+    elif args.command == "effort-get":
+        receipts = vault.get_effort_receipts(args.memory_id)
+        print(f"\n=== Effort Receipts for {args.memory_id[:12]}... ===\n")
+        if not receipts:
+            print("No effort receipts linked")
+        else:
+            for r in receipts:
+                print(f"{r['receipt_id'][:12]}... | {r['signal_count']} signals")
+                print(f"  Time: {r['time_start']} to {r['time_end']}")
+                print(f"  Summary: {r['effort_summary'][:60]}...")
+                if r['ledger_entry_id']:
+                    print(f"  Chain: {r['ledger_entry_id'][:16]}...")
+                print()
+
+    # ==================== Agent-OS Governance Commands ====================
+
+    elif args.command == "governance-status":
+        summary = vault.get_governance_summary()
+        print("\n=== Agent-OS Governance Summary ===\n")
+        if not summary.get('available', True):
+            print(f"Agent-OS integration: {summary.get('message', summary.get('error', 'Not available'))}")
+        else:
+            print(f"Total decisions: {summary.get('total_decisions', 0)}")
+            print(f"Approved: {summary.get('approved', 0)}")
+            print(f"Denied: {summary.get('denied', 0)}")
+            print(f"Human overrides: {summary.get('human_overrides', 0)}")
+            if summary.get('approval_rate'):
+                print(f"Approval rate: {summary['approval_rate']:.1%}")
+            if summary.get('by_action'):
+                print("\nBy action:")
+                for action, count in summary['by_action'].items():
+                    print(f"  {action}: {count}")
+        print()
+
+    elif args.command == "boundary-status":
+        status = vault.get_boundary_status()
+        print("\n=== Agent-OS Boundary Status ===\n")
+        if status.get('available'):
+            print("✓ Boundary daemon connected")
+            if 'mode' in status:
+                print(f"  Mode: {status['mode']}")
+            if 'human_present' in status:
+                print(f"  Human present: {'Yes' if status['human_present'] else 'No'}")
+        else:
+            print(f"○ Boundary daemon: {status.get('reason', status.get('error', 'Not available'))}")
+        print()
+
+    elif args.command == "governance-check":
+        try:
+            permitted, reason = vault.check_governance_permission(
+                args.agent_id, args.action, args.memory_id
+            )
+            print(f"\n=== Governance Permission Check ===\n")
+            print(f"Agent: {args.agent_id}")
+            print(f"Action: {args.action}")
+            print(f"Resource: {args.memory_id}")
+            print(f"\nResult: {'✓ PERMITTED' if permitted else '✗ DENIED'}")
+            print(f"Reason: {reason}")
+            print()
+            sys.exit(0 if permitted else 1)
+        except Exception as e:
+            print(f"Check failed: {e}")
             sys.exit(1)
 
 if __name__ == "__main__":
