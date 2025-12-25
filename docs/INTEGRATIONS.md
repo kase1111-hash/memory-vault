@@ -1,9 +1,9 @@
 # Memory Vault Integration Guide
 
-Date: December 17, 2025
+Date: December 25, 2025
 Status: Fully Implemented
 
-This document consolidates all integration guides for the Memory Vault system, covering the Boundary Daemon, IntentLog, Physical Tokens, and Dead-Man Switch with Heir Release.
+This document consolidates all integration guides for the Memory Vault system, covering the Boundary Daemon, IntentLog, Physical Tokens, Dead-Man Switch with Heir Release, NatLangChain blockchain anchoring, and MP-02 Proof-of-Effort receipts.
 
 ---
 
@@ -13,6 +13,9 @@ This document consolidates all integration guides for the Memory Vault system, c
 2. [IntentLog Integration](#2-intentlog-integration)
 3. [Physical Token Integration (Level 5)](#3-physical-token-integration-level-5)
 4. [Encrypted Release to Heirs (Dead-Man Switch)](#4-encrypted-release-to-heirs-dead-man-switch)
+5. [NatLangChain Integration](#5-natlangchain-integration)
+6. [MP-02 Proof-of-Effort Receipts](#6-mp-02-proof-of-effort-receipts)
+7. [Agent-OS Governance Integration](#7-agent-os-governance-integration)
 
 ---
 
@@ -413,6 +416,256 @@ age -d -i heir-key.txt dms-release-alice.json
 
 ---
 
+---
+
+## 5. NatLangChain Integration
+
+NatLangChain is a prose-first, intent-native blockchain protocol whose purpose is to record explicit human intent in natural language. Memory Vault integrates with NatLangChain to provide immutable, verifiable audit trails for memory operations.
+
+### Why Integrate?
+
+- **Immutable audit trail**: Memory anchors are recorded on the blockchain
+- **Proof of existence**: Cryptographic proof that a memory existed at a specific time
+- **Cross-system verification**: Third parties can verify memory integrity without access to content
+- **Effort receipts**: MP-02 proof-of-effort receipts can be anchored for human work verification
+
+### Configuration
+
+Set the NatLangChain API URL via environment variable:
+
+```bash
+export NATLANGCHAIN_API_URL="http://localhost:8000"
+```
+
+### CLI Commands
+
+```bash
+# Anchor a memory to the blockchain
+memory-vault chain-anchor <memory_id>
+
+# Verify a memory's chain anchor
+memory-vault chain-verify <memory_id>
+
+# View chain history for a memory
+memory-vault chain-history <memory_id>
+
+# Check NatLangChain connection status
+memory-vault chain-status
+```
+
+### Python API
+
+```python
+from memory_vault import MemoryVault
+
+vault = MemoryVault()
+
+# Store a memory
+vault.store_memory(obj)
+
+# Anchor to NatLangChain
+entry_id = vault.anchor_to_chain(obj.memory_id)
+
+# Verify the anchor
+result = vault.verify_chain_anchor(obj.memory_id)
+if result and result['verified']:
+    print("Memory anchor verified on blockchain")
+
+# Get chain history
+history = vault.get_chain_history(obj.memory_id)
+```
+
+### What Gets Anchored
+
+The anchor record includes:
+- Memory ID
+- Content hash (SHA-256, content remains encrypted)
+- Classification level
+- Intent reference (if any)
+- Timestamp
+
+**Content is NEVER exposed** — only the hash is recorded on-chain.
+
+---
+
+## 6. MP-02 Proof-of-Effort Receipts
+
+MP-02 defines the protocol by which human intellectual effort is observed, validated, and recorded as cryptographically verifiable receipts. Memory Vault implements the full MP-02 specification.
+
+### Design Principles
+
+1. **Process Over Artifact**: Effort is validated as a process over time
+2. **Continuity Matters**: Temporal progression is a primary signal
+3. **Receipts, Not Claims**: Records evidence, not conclusions about value
+4. **Model Skepticism**: LLM assessments are advisory and reproducible
+5. **Partial Observability**: Uncertainty is preserved, not collapsed
+
+### Components
+
+| Component | Purpose |
+|-----------|---------|
+| **Observer** | Captures raw signals of effort (text edits, commands, decisions) |
+| **Validator** | Analyzes effort segments for coherence and progression |
+| **Receipt** | Cryptographic record attesting that effort occurred |
+| **Ledger** | Append-only storage with NatLangChain anchoring |
+
+### CLI Commands
+
+```bash
+# Start observing effort
+memory-vault effort-start --reason "working on feature X"
+
+# Record signals during work
+memory-vault effort-signal text_edit "Updated authentication logic"
+memory-vault effort-signal decision "Chose JWT over sessions"
+memory-vault effort-marker "Completed initial implementation"
+
+# Stop observation
+memory-vault effort-stop --reason "feature complete"
+
+# Validate the effort segment
+memory-vault effort-validate <segment_id>
+
+# Generate a signed receipt (optionally anchored to NatLangChain)
+memory-vault effort-receipt <segment_id> --memory-id <memory_id>
+
+# List pending segments
+memory-vault effort-pending
+
+# Get receipts for a memory
+memory-vault effort-get <memory_id>
+```
+
+### Python API
+
+```python
+from memory_vault.effort import (
+    EffortObserver,
+    EffortValidator,
+    generate_receipt,
+    SignalType
+)
+
+# Start observation
+observer = EffortObserver()
+segment_id = observer.start_observation(reason="implementing feature")
+
+# Record signals
+observer.record_signal(SignalType.TEXT_EDIT, "Added new function")
+observer.record_signal(SignalType.DECISION, "Chose algorithm A over B")
+observer.add_marker("Completed first phase")
+
+# Stop and get segment
+segment = observer.stop_observation(reason="phase complete")
+
+# Validate
+validator = EffortValidator()
+validation = validator.validate_segment(segment)
+
+# Generate receipt (with optional NatLangChain anchoring)
+receipt = generate_receipt(
+    segment=segment,
+    validation=validation,
+    memory_id="associated-memory-id",
+    anchor_to_chain=True
+)
+
+print(f"Receipt ID: {receipt.receipt_id}")
+print(f"Effort Summary: {receipt.effort_summary}")
+print(f"Chain Entry: {receipt.ledger_entry_id}")
+```
+
+### Signal Types
+
+| Signal Type | Description |
+|-------------|-------------|
+| `text_edit` | Text/code modifications |
+| `command` | Shell commands executed |
+| `tool_interaction` | Tool usage events |
+| `voice_transcript` | Voice input transcripts |
+| `file_operation` | File create/read/update/delete |
+| `search_query` | Search operations |
+| `decision` | Explicit decision records |
+| `annotation` | Manual annotations |
+| `pause` | Explicit thinking pauses |
+| `marker` | Boundary markers |
+
+### Validation Metrics
+
+The validator produces:
+- **Coherence Score** (0-1): How coherent the effort appears
+- **Progression Score** (0-1): Evidence of progression over time
+- **Uncertainty** (0-1): Validator's uncertainty level
+- **Effort Summary**: Deterministic human-readable summary
+
+---
+
+## 7. Agent-OS Governance Integration
+
+Memory Vault provides deep integration with Agent-OS's governance framework, implementing constitution-based access control and boundary enforcement.
+
+### Components
+
+| Component | Purpose |
+|-----------|---------|
+| **BoundaryDaemon** | Extended client for environmental security |
+| **ConstitutionManager** | Loads and verifies governance documents |
+| **GovernanceLogger** | Audits all governance decisions |
+
+### CLI Commands
+
+```bash
+# View governance summary
+memory-vault governance-status
+
+# Check boundary daemon status
+memory-vault boundary-status
+
+# Check governance permission for an action
+memory-vault governance-check <agent_id> <action> <memory_id>
+```
+
+### Python API
+
+```python
+from memory_vault import MemoryVault
+
+vault = MemoryVault()
+
+# Check if an agent has permission
+permitted, reason = vault.check_governance_permission(
+    agent_id="worker-agent-123",
+    action="recall",
+    memory_id="some-memory-id"
+)
+
+# Get governance activity summary
+summary = vault.get_governance_summary()
+
+# Get boundary daemon status
+status = vault.get_boundary_status()
+```
+
+### Operational Modes
+
+| Mode | Description |
+|------|-------------|
+| `ONLINE` | Normal operation, network available |
+| `OFFLINE` | No network, but local operations permitted |
+| `AIRGAP` | Strict isolation, required for Level 4+ |
+| `COLDROOM` | Maximum isolation, required for Level 5 |
+| `MAINTENANCE` | System maintenance mode |
+
+### Constitution-Based Access
+
+The Memory Vault constitution (at `~/.agent-os/constitutions/memory_vault.md`) defines:
+- Classification-level requirements
+- Mode requirements per level
+- Human authority requirements
+- Refusal conditions
+
+---
+
 ## Summary
 
 The Memory Vault integration suite ensures:
@@ -423,5 +676,8 @@ The Memory Vault integration suite ensures:
 | IntentLog | Secure persistence for high-value intents |
 | Physical Tokens | Level 5 physical presence requirement |
 | Heir Release | Secure succession and dead-man switches |
+| NatLangChain | Immutable blockchain audit trails |
+| MP-02 Effort | Proof-of-effort receipt generation |
+| Agent-OS Governance | Constitution-based access control |
 
 **The agent cannot betray its boundaries. The human cannot be bypassed. The system is fully aligned with Agent-OS principles.**

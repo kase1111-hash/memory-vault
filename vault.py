@@ -11,21 +11,60 @@ from datetime import datetime, timedelta
 
 from nacl.utils import random as nacl_random
 
-from .models import MemoryObject
-from .crypto import (
-    derive_key_from_passphrase,
-    load_key_from_file,
-    encrypt_memory,
-    decrypt_memory,
-    generate_keyfile,
-    load_or_create_signing_key,
-    sign_root
-)
-from .db import DB_PATH, init_db
-from .boundry import check_recall
-from .merkle import hash_leaf, build_tree
-
 import re
+
+# Support both package and direct imports
+try:
+    from .models import MemoryObject
+    from .crypto import (
+        derive_key_from_passphrase,
+        load_key_from_file,
+        encrypt_memory,
+        decrypt_memory,
+        generate_keyfile,
+        load_or_create_signing_key,
+        sign_root
+    )
+    from .db import DB_PATH, init_db
+    from .boundry import check_recall
+    from .merkle import hash_leaf, build_tree
+except ImportError:
+    from models import MemoryObject
+    from crypto import (
+        derive_key_from_passphrase,
+        load_key_from_file,
+        encrypt_memory,
+        decrypt_memory,
+        generate_keyfile,
+        load_or_create_signing_key,
+        sign_root
+    )
+    from db import DB_PATH, init_db
+    from boundry import check_recall
+    from merkle import hash_leaf, build_tree
+
+# Optional integration imports
+try:
+    from .natlangchain import anchor_memory_to_chain, verify_memory_anchor
+except ImportError:
+    try:
+        from natlangchain import anchor_memory_to_chain, verify_memory_anchor
+        NATLANGCHAIN_AVAILABLE = True
+    except ImportError:
+        NATLANGCHAIN_AVAILABLE = False
+else:
+    NATLANGCHAIN_AVAILABLE = True
+
+try:
+    from .agent_os import check_agent_permission, GovernanceLogger, BoundaryDaemon
+except ImportError:
+    try:
+        from agent_os import check_agent_permission, GovernanceLogger, BoundaryDaemon
+        AGENT_OS_AVAILABLE = True
+    except ImportError:
+        AGENT_OS_AVAILABLE = False
+else:
+    AGENT_OS_AVAILABLE = True
 
 # Security: Validate profile_id to prevent path traversal
 PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
@@ -55,7 +94,10 @@ class MemoryVault:
         exportable: bool = False,
         generate_keyfile: bool = False
     ) -> None:
-        from .crypto import TPM_AVAILABLE  # Local import to avoid circular issues
+        try:
+            from .crypto import TPM_AVAILABLE
+        except ImportError:
+            from crypto import TPM_AVAILABLE
 
         # Security: Validate profile_id to prevent path traversal
         validate_profile_id(profile_id)
@@ -75,8 +117,11 @@ class MemoryVault:
             raise ValueError(f"Profile '{profile_id}' already exists")
 
         if key_source == "KeyFile" and generate_keyfile:
-            from .crypto import generate_keyfile
-            keyfile_path = generate_keyfile(profile_id)
+            try:
+                from .crypto import generate_keyfile as make_keyfile
+            except ImportError:
+                from crypto import generate_keyfile as make_keyfile
+            keyfile_path = make_keyfile(profile_id)
             print(f"Generated keyfile: {keyfile_path}")
 
         c.execute('''
@@ -139,7 +184,10 @@ class MemoryVault:
         nonce = None
 
         if key_source == "TPM":
-            from .crypto import tpm_create_and_persist_primary, tpm_generate_sealed_key
+            try:
+                from .crypto import tpm_create_and_persist_primary, tpm_generate_sealed_key
+            except ImportError:
+                from crypto import tpm_create_and_persist_primary, tpm_generate_sealed_key
             tpm_create_and_persist_primary()
             ephemeral_key = nacl_random(32)
             ciphertext, nonce = encrypt_memory(ephemeral_key, obj.content_plaintext)
@@ -253,7 +301,10 @@ class MemoryVault:
 
         try:
             if key_source == "TPM":
-                from .crypto import tpm_unseal_key
+                try:
+                    from .crypto import tpm_unseal_key
+                except ImportError:
+                    from crypto import tpm_unseal_key
                 if not sealed_blob:
                     raise PermissionError("TPM sealed key missing")
                 key = tpm_unseal_key(sealed_blob)
@@ -612,7 +663,10 @@ class MemoryVault:
 
         # Verify signature
         print("2. Verifying cryptographic signature...")
-        from .crypto import get_public_verify_key, verify_signature
+        try:
+            from .crypto import get_public_verify_key, verify_signature
+        except ImportError:
+            from crypto import get_public_verify_key, verify_signature
 
         try:
             vk = get_public_verify_key()
@@ -1232,3 +1286,270 @@ class MemoryVault:
             raise ValueError(f"Memory '{memory_id}' not found")
 
         return bool(row[0]), row[1], row[2]
+
+    # ==================== NatLangChain Integration ====================
+
+    def anchor_to_chain(self, memory_id: str, author: str = "memory_vault") -> str:
+        """
+        Anchor a memory's metadata to NatLangChain blockchain.
+
+        Creates an immutable record of the memory's existence without
+        revealing its contents.
+
+        Args:
+            memory_id: The memory to anchor
+            author: Author identifier for the chain entry
+
+        Returns:
+            Entry ID if successful, None otherwise
+        """
+        if not NATLANGCHAIN_AVAILABLE:
+            raise RuntimeError("NatLangChain integration not available")
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT content_hash, classification, intent_ref, chain_anchor_id
+            FROM memories WHERE memory_id = ?
+        """, (memory_id,))
+        row = c.fetchone()
+
+        if not row:
+            conn.close()
+            raise ValueError(f"Memory '{memory_id}' not found")
+
+        content_hash, classification, intent_ref, existing_anchor = row
+
+        if existing_anchor:
+            conn.close()
+            print(f"Memory {memory_id} already anchored: {existing_anchor}")
+            return existing_anchor
+
+        entry_id = anchor_memory_to_chain(
+            memory_id=memory_id,
+            content_hash=content_hash,
+            classification=classification,
+            intent_ref=intent_ref,
+            author=author
+        )
+
+        if entry_id:
+            # Store anchor reference
+            timestamp = datetime.utcnow().isoformat() + "Z"
+            c.execute("""
+                INSERT INTO chain_anchors
+                (anchor_id, memory_id, entry_id, anchor_type, anchored_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, (str(uuid.uuid4()), memory_id, entry_id, "memory_anchor", timestamp))
+
+            c.execute("UPDATE memories SET chain_anchor_id = ? WHERE memory_id = ?",
+                     (entry_id, memory_id))
+
+            conn.commit()
+            print(f"Memory {memory_id} anchored to NatLangChain: {entry_id}")
+
+        conn.close()
+        return entry_id
+
+    def verify_chain_anchor(self, memory_id: str) -> dict:
+        """
+        Verify that a memory has been properly anchored to NatLangChain.
+
+        Args:
+            memory_id: The memory ID to verify
+
+        Returns:
+            Verification result with proof details
+        """
+        if not NATLANGCHAIN_AVAILABLE:
+            raise RuntimeError("NatLangChain integration not available")
+
+        return verify_memory_anchor(memory_id)
+
+    def get_chain_history(self, memory_id: str) -> list:
+        """
+        Get all NatLangChain entries related to a memory.
+
+        Args:
+            memory_id: The memory ID to look up
+
+        Returns:
+            List of related chain entries
+        """
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT anchor_id, entry_id, anchor_type, anchored_at, block_hash, verified
+            FROM chain_anchors WHERE memory_id = ?
+            ORDER BY anchored_at DESC
+        """, (memory_id,))
+
+        results = []
+        for row in c.fetchall():
+            results.append({
+                "anchor_id": row[0],
+                "entry_id": row[1],
+                "anchor_type": row[2],
+                "anchored_at": row[3],
+                "block_hash": row[4],
+                "verified": bool(row[5])
+            })
+
+        conn.close()
+        return results
+
+    # ==================== Agent-OS Governance Integration ====================
+
+    def check_governance_permission(
+        self,
+        agent_id: str,
+        action: str,
+        memory_id: str
+    ) -> tuple:
+        """
+        Check if an agent has governance permission for an action.
+
+        Uses Agent-OS constitution and boundary daemon.
+
+        Args:
+            agent_id: ID of the requesting agent
+            action: Action to perform (recall, store, delete)
+            memory_id: Target memory ID
+
+        Returns:
+            (permitted, reason) tuple
+        """
+        if not AGENT_OS_AVAILABLE:
+            # Fallback to basic boundary check
+            return True, "Agent-OS not available, using basic boundary check"
+
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        c.execute("SELECT classification FROM memories WHERE memory_id = ?", (memory_id,))
+        row = c.fetchone()
+        classification = row[0] if row else 0
+
+        conn.close()
+
+        return check_agent_permission(
+            agent_id=agent_id,
+            action=action,
+            resource=memory_id,
+            classification=classification
+        )
+
+    def get_governance_summary(self) -> dict:
+        """
+        Get a summary of governance activity.
+
+        Returns:
+            Summary of governance decisions
+        """
+        if not AGENT_OS_AVAILABLE:
+            return {"available": False, "message": "Agent-OS integration not available"}
+
+        try:
+            from .agent_os import get_governance_summary as _get_summary
+            return _get_summary()
+        except Exception as e:
+            return {"available": False, "error": str(e)}
+
+    def get_boundary_status(self) -> dict:
+        """
+        Get current Agent-OS boundary daemon status.
+
+        Returns:
+            Boundary status information
+        """
+        if not AGENT_OS_AVAILABLE:
+            # Use basic boundry module
+            permitted, reason = check_recall(0)
+            return {
+                "available": permitted or "not found" not in reason.lower(),
+                "permitted_level_0": permitted,
+                "reason": reason
+            }
+
+        try:
+            daemon = BoundaryDaemon()
+            status = daemon.get_status()
+            status["available"] = True
+            return status
+        except Exception as e:
+            return {"available": False, "error": str(e)}
+
+    # ==================== Effort Receipt Integration ====================
+
+    def link_effort_receipt(self, memory_id: str, receipt_id: str) -> bool:
+        """
+        Link an MP-02 effort receipt to a memory.
+
+        Args:
+            memory_id: The memory to link
+            receipt_id: The effort receipt ID
+
+        Returns:
+            True if successful
+        """
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        c.execute("SELECT 1 FROM memories WHERE memory_id = ?", (memory_id,))
+        if not c.fetchone():
+            conn.close()
+            raise ValueError(f"Memory '{memory_id}' not found")
+
+        c.execute("SELECT 1 FROM effort_receipts WHERE receipt_id = ?", (receipt_id,))
+        if not c.fetchone():
+            conn.close()
+            raise ValueError(f"Receipt '{receipt_id}' not found")
+
+        c.execute("UPDATE memories SET effort_receipt_id = ? WHERE memory_id = ?",
+                 (receipt_id, memory_id))
+        c.execute("UPDATE effort_receipts SET memory_id = ? WHERE receipt_id = ?",
+                 (memory_id, receipt_id))
+
+        conn.commit()
+        conn.close()
+
+        print(f"Linked receipt {receipt_id[:8]}... to memory {memory_id[:8]}...")
+        return True
+
+    def get_effort_receipts(self, memory_id: str) -> list:
+        """
+        Get all effort receipts linked to a memory.
+
+        Args:
+            memory_id: The memory ID
+
+        Returns:
+            List of effort receipt summaries
+        """
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT receipt_id, segment_id, time_bounds_start, time_bounds_end,
+                   signal_count, effort_summary, created_at, ledger_entry_id
+            FROM effort_receipts WHERE memory_id = ?
+            ORDER BY created_at DESC
+        """, (memory_id,))
+
+        results = []
+        for row in c.fetchall():
+            results.append({
+                "receipt_id": row[0],
+                "segment_id": row[1],
+                "time_start": row[2],
+                "time_end": row[3],
+                "signal_count": row[4],
+                "effort_summary": row[5],
+                "created_at": row[6],
+                "ledger_entry_id": row[7]
+            })
+
+        conn.close()
+        return results
