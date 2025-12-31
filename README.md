@@ -70,14 +70,16 @@ python -m memory_vault.cli recall <memory_id> --justification "System recovery"
 
 ## Classification Levels
 
-| Level | Name      | Requirements                                    |
-|-------|-----------|-------------------------------------------------|
-| 0     | Ephemeral | None (agent can auto-recall)                    |
-| 1     | Working   | None (agent can auto-recall)                    |
-| 2     | Private   | None (agent can auto-recall)                    |
-| 3     | Sealed    | Human approval + boundary check + cooldown      |
-| 4     | Vaulted   | Human approval + boundary check + offline mode  |
-| 5     | Black     | All above + **physical token** + airgap         |
+| Level | Name      | Key Requirements                    |
+|-------|-----------|------------------------------------|
+| 0     | Ephemeral | Auto-recall, auto-purge            |
+| 1     | Working   | Auto-recall                        |
+| 2     | Private   | Auto-recall                        |
+| 3     | Sealed    | Human approval + boundary check    |
+| 4     | Vaulted   | + offline/airgap mode              |
+| 5     | Black     | + physical token                   |
+
+See [SPECIFICATION.md](SPECIFICATION.md#3-memory-classification-model) for full classification details.
 
 ## Physical Token Setup (Level 5)
 
@@ -200,50 +202,14 @@ memory_vault/
 └── cli.py            - Command-line interface
 ```
 
-## Security Model
+## Security
 
-### Encryption
+- **AES-256-GCM** encryption via libsodium (PyNaCl)
+- **Argon2id** key derivation with maximum security parameters
+- **Ed25519** signed Merkle audit trail
+- **TPM support** for hardware-bound keys (optional)
 
-- **AES-256-GCM** via libsodium (PyNaCl)
-- **Per-memory nonce** + optional salt
-- **Argon2id** key derivation (OPSLIMIT_SENSITIVE, MEMLIMIT_SENSITIVE)
-
-### Key Sources
-
-| Source           | Exportable | Hardware-Bound | Notes                    |
-|------------------|------------|----------------|--------------------------|
-| HumanPassphrase  | Yes        | No             | Argon2id derivation      |
-| KeyFile          | Yes        | No             | Static pre-shared key    |
-| TPM              | No         | Yes            | Sealed to PCRs 0-7       |
-
-### Audit Trail
-
-- Every recall (success/failure) logged
-- Leaf hash = double-SHA256 of log entry
-- Merkle root rebuilt on each log entry
-- Root signed with Ed25519 key
-- Signing key optionally TPM-sealed (non-exportable, PCR-bound)
-
-## Threat Model
-
-### Assets Protected
-
-- Proprietary ideas and IP
-- Failed paths (negative knowledge)
-- Intent history
-- Learning heuristics
-- Economic value metadata
-
-### Mitigations
-
-| Threat              | Mitigation                          |
-|---------------------|-------------------------------------|
-| Memory exfiltration | Encryption + air-gap                |
-| Over-recall         | Least recall + contracts            |
-| Model leakage       | No plaintext training reuse         |
-| Key theft           | Hardware-bound keys (TPM)           |
-| Coercive recall     | Cooldowns + physical tokens         |
-| Silent corruption   | Merkle audits + signatures          |
+See [SPECIFICATION.md](SPECIFICATION.md) for detailed security model and threat analysis.
 
 ## Dependencies
 

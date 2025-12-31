@@ -1,6 +1,6 @@
 # Memory Vault Integration Guide
 
-Date: December 25, 2025
+Date: December 31, 2025
 Status: Fully Implemented
 
 This document consolidates all integration guides for the Memory Vault system, covering the Boundary Daemon, IntentLog, Physical Tokens, Dead-Man Switch with Heir Release, NatLangChain blockchain anchoring, and MP-02 Proof-of-Effort receipts.
@@ -214,7 +214,7 @@ Level 5 memories represent the highest classification — existential secrets (r
 - **Supported devices:** YubiKey, Nitrokey, OnlyKey, any U2F/FIDO2/HOTP/TOTP device
 - **No plaintext key storage:** Token never exposes private key
 
-### Implementation (token.py)
+### Implementation (physical_token.py)
 
 ```python
 import os

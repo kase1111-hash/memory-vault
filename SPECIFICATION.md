@@ -1,7 +1,7 @@
 # Memory Vault Specification
 
-**Version:** 1.5
-**Last Updated:** December 22, 2025
+**Version:** 1.6
+**Last Updated:** December 31, 2025
 **Status:** Production (Feature Complete)
 
 ---
@@ -274,271 +274,39 @@ Allows proof of audit trail integrity without revealing memory content.
 | TPM memory sealing | Full code exists | Hardware testing/validation |
 | TPM-sealed signing key | Full code exists | Hardware testing/validation |
 
-### 13.3 Not Implemented
+### 13.3 All Core Features Implemented
 
-| Feature | Priority | Description |
-|---------|----------|-------------|
-| MP-02 Proof-of-Effort | FUTURE | NatLangChain effort receipt integration |
+All core features including MP-02 Proof-of-Effort receipts are now implemented. See `docs/INTEGRATIONS.md` for integration details.
 
 ---
 
-## 14. Implementation Plans
+## 14. Implementation Status
 
-### 14.1 RECENTLY IMPLEMENTED (v1.4)
-
-#### 14.1.1 Level 0 Ephemeral Auto-Purge
-
-**Status:** ✓ Implemented (v1.4)
-
-**Implementation:**
-- Added `purge_ephemeral(max_age_hours: int = 24)` method to vault.py
-- Added `get_ephemeral_count()` for statistics
-- CLI commands: `purge-ephemeral`, `ephemeral-status`
-- Deletes Level 0 memories older than configurable threshold
-
-**Files:** vault.py, cli.py
-
----
-
-#### 14.1.2 Lockdown Mode
-
-**Status:** ✓ Implemented (v1.4)
-
-**Implementation:**
-- Added `vault_state` table with lockdown tracking
-- Added `is_locked_down()`, `enter_lockdown(reason)`, `exit_lockdown()` methods
-- Lockdown check at start of `recall_memory()` - fails immediately if locked
-- CLI commands: `lockdown`, `unlock`, `lockdown-status`
-- Physical token required to enter/exit lockdown
-- Exit also requires passphrase verification
-
-**Files:** vault.py, db.py, cli.py
-
----
-
-#### 14.1.3 Key Rotation
-
-**Status:** ✓ Implemented (v1.4)
-
-**Implementation:**
-- Added `last_rotation` and `rotation_count` columns to encryption_profiles
-- Added `rotate_profile_key(profile_id)` method:
-  - Decrypts all memories using old key
-  - Re-encrypts with new key (new salt/nonce per memory)
-  - Records rotation timestamp and count
-  - Rolls back on any failure
-- CLI command: `rotate-key <profile_id>`
-- Physical token required for rotation
-- KeyFile rotation auto-backs up old keyfile
-
-**Files:** vault.py, db.py, cli.py
-
-**Note:** TPM profiles cannot be rotated (hardware-bound by design).
-
----
-
-### 14.2 PENDING
-
-#### 14.2.1 TPM Hardware Validation
+### 14.1 Pending: TPM Hardware Validation
 
 **Status:** Code Complete, Untested
 
-**Problem:** TPM code exists but hasn't been validated on real hardware.
+TPM sealing/unsealing code exists but hasn't been validated on real hardware.
 
-**Plan:**
-1. Set up test environment with TPM 2.0 (hardware or swtpm simulator)
-2. Test `tpm_create_and_persist_primary()` - verify primary key creation
-3. Test `tpm_generate_sealed_key()` - verify key sealing to PCRs 0-7
-4. Test `tpm_unseal_key()` - verify unsealing works and fails on PCR mismatch
-5. Test `tpm_seal_signing_key()` - verify signing key sealing
-6. Document PCR binding behavior and recovery procedures
-7. Add integration tests
+**Requirements:**
+- TPM 2.0 hardware or swtpm simulator
+- tpm2-pytss package
 
-**Dependencies:** tpm2-pytss, TPM 2.0 hardware or swtpm
-
----
-
-### 14.3 RECENTLY IMPLEMENTED (v1.5)
-
-#### 14.3.1 Memory Tombstones
-
-**Status:** ✓ Implemented (v1.5)
-
-**Implementation:**
-- Added `tombstoned`, `tombstoned_at`, `tombstone_reason` columns to memories table
-- Added `tombstone_memory(memory_id, reason)` method to vault.py
-- Physical token required for Level 3+ tombstoning
-- Tombstoned memories blocked at recall_memory() level
-- CLI commands: `tombstone`, `tombstone-list`, `tombstone-check`
-
-**Files:** vault.py, db.py, cli.py
+**To validate:**
+1. Test `tpm_create_and_persist_primary()` - primary key creation
+2. Test `tpm_generate_sealed_key()` - key sealing to PCRs 0-7
+3. Test `tpm_unseal_key()` - unsealing and PCR mismatch behavior
+4. Test `tpm_seal_signing_key()` - signing key sealing
 
 ---
 
-#### 14.3.2 IntentLog Adapter
+### 14.2 Future Work
 
-**Status:** ✓ Implemented (v1.5)
-
-**Implementation:**
-- Created `intentlog.py` with full adapter interface
-- `link_intent()`, `unlink_intent()` for bidirectional linking
-- `get_memories_for_intent()`, `get_intents_for_memory()` for lookups
-- `search_by_intent()` for pattern-based search
-- CLI commands: `intent-link`, `intent-unlink`, `intent-search`, `intent-get`
-
-**Files:** intentlog.py, cli.py
-
-**Integration:** Uses existing `intent_ref` field (supports multiple intents as JSON array)
-
----
-
-#### 14.3.3 Zero-Knowledge Proofs
-
-**Status:** ✓ Implemented (v1.5)
-
-**Implementation:**
-- Created `zkproofs.py` with commitment-based proofs
-- `generate_existence_commitment()` - proves memory exists without revealing content
-- `verify_existence_commitment()` - verifies commitment with known memory_id/timestamp
-- `generate_time_bound_proof()` - proves memory existed before specific time
-- `generate_signed_attestation()` - owner-signed statements about memories
-- CLI commands: `zk-commitment`, `zk-verify`, `zk-time-proof`
-
-**Files:** zkproofs.py, cli.py
-
-**Note:** Uses cryptographic commitments (double-SHA256) rather than zkSNARKs for simplicity.
-
----
-
-#### 14.3.4 Escrowed Keys (Shamir's Secret Sharing)
-
-**Status:** ✓ Implemented (v1.5)
-
-**Implementation:**
-- Created `escrow.py` with full Shamir's Secret Sharing over GF(256)
-- Added `escrow_shards` table for encrypted shard storage
-- `split_secret()` / `reconstruct_secret()` - core SSS functions
-- `create_escrow()` - creates K-of-N escrow for a profile
-- `export_shard_package()` - exports encrypted shards for recipients
-- `recover_from_escrow()` - reconstructs key from threshold shards
-- CLI commands: `escrow-create`, `escrow-list`, `escrow-info`, `escrow-export`, `escrow-delete`
-
-**Files:** escrow.py, db.py, cli.py
-
-**Usage:** Distinct from dead-man switch; requires active cooperation of multiple parties.
-
----
-
-### 14.4 FUTURE / MP-02 INTEGRATION
-
-#### 14.4.1 MP-02 Proof-of-Effort Receipt Protocol
-
-**Status:** Specification Only (see MP-02-spec.md)
-
-**Problem:** Memory Vault stores cognitive artifacts but doesn't prove the effort that created them.
-
-**Background:** MP-02 (NatLangChain Effort Verification) defines how human intellectual effort is observed, validated, and recorded as cryptographically verifiable receipts. This integration allows Memory Vault memories to be linked to effort proofs.
-
-**Integration Plan:**
-
-**Phase 1: Receipt Schema Integration**
-1. Add `effort_receipt_id` column to memories table
-2. Add `receipts` table to store effort receipt metadata:
-   ```sql
-   CREATE TABLE effort_receipts (
-       receipt_id TEXT PRIMARY KEY,
-       memory_id TEXT REFERENCES memories(memory_id),
-       time_bounds_start TEXT,
-       time_bounds_end TEXT,
-       signal_hashes TEXT,          -- JSON array of signal hashes
-       effort_summary TEXT,         -- Deterministic summary
-       validator_id TEXT,           -- LLM model identifier
-       validator_version TEXT,      -- Model version
-       observer_id TEXT,            -- Observer system identifier
-       anchored_at TEXT,            -- Ledger anchor timestamp
-       ledger_proof TEXT            -- Inclusion proof
-   );
-   ```
-
-**Phase 2: Observer Integration**
-1. Create `observer.py` for signal capture
-2. Implement signal types: text edits, command history, tool interactions
-3. Time-stamp and hash all signals
-4. Segment signals by activity boundaries or explicit markers
-
-**Phase 3: Validator Integration**
-1. Create `validator.py` for effort assessment
-2. Integrate with LLM for coherence/progression analysis
-3. Produce deterministic summaries
-4. Preserve uncertainty and dissent
-5. Record model identity and version
-
-**Phase 4: Receipt Construction**
-1. Create `receipt.py` for MP-02 receipt building
-2. Generate receipt ID, time bounds, signal hashes
-3. Include validation metadata
-4. Sign receipt with vault's Ed25519 key
-
-**Phase 5: Ledger Anchoring**
-1. Design append-only ledger format (local SQLite or external)
-2. Hash receipt contents and append to ledger
-3. Generate inclusion proofs
-4. Support external ledger systems (blockchain optional)
-
-**Files:** Create observer.py, validator.py, receipt.py, ledger.py; modify db.py, vault.py, cli.py
-
-**CLI Commands:**
-- `effort-observe start/stop` - Control signal observation
-- `effort-segment` - Mark activity boundary
-- `effort-validate <segment_id>` - Generate effort assessment
-- `effort-receipt <memory_id>` - Create and anchor receipt
-- `effort-verify <receipt_id>` - Verify receipt against ledger
-
-**Compatibility:** MP-02 receipts will be compatible with MP-01 Negotiation & Ratification protocol for future licensing/delegation.
-
----
-
-#### 14.3.2 Remote TPM Attestation
-
-**Status:** Future
-
-**Dependencies:** TPM hardware validation complete
-
-**Plan:**
-1. Implement remote attestation protocol
-2. Generate TPM quotes for platform state
-3. Allow third-party verification of vault integrity
-4. Integrate with enterprise key management
-
----
-
-#### 14.3.3 Web Audit Viewer
-
-**Status:** Future
-
-**Dependencies:** verify-integrity complete
-
-**Plan:**
-1. Create read-only web interface for audit trail visualization
-2. Display Merkle tree structure graphically
-3. Show recall history with approval/denial status
-4. Export audit reports in standard formats
-
----
-
-#### 14.3.4 Multi-Device Sync
-
-**Status:** Future
-
-**Dependencies:** Key exchange protocol design
-
-**Plan:**
-1. Design secure key exchange between trusted devices
-2. Implement conflict resolution for concurrent modifications
-3. Support selective sync (by classification level)
-4. End-to-end encryption for sync transport
-
-**Note:** This partially conflicts with "offline-first" principle - requires careful design.
+| Feature | Description |
+|---------|-------------|
+| Remote TPM Attestation | Generate TPM quotes for third-party verification |
+| Web Audit Viewer | Read-only web interface for audit trail visualization |
+| Multi-Device Sync | Secure sync with E2E encryption (conflicts with offline-first principle) |
 
 ---
 
@@ -579,6 +347,7 @@ Allows proof of audit trail integrity without revealing memory content.
 | 1.3 | Dec 22, 2025 | Fixed file references (token.py → physical_token.py), fixed import bug, consolidated documentation |
 | 1.4 | Dec 22, 2025 | Implemented Level 0 auto-purge, lockdown mode, key rotation; added vault_state table |
 | 1.5 | Dec 22, 2025 | Implemented tombstones, IntentLog adapter, ZK proofs, escrowed keys (Shamir SSS) |
+| 1.6 | Dec 31, 2025 | Documentation cleanup: consolidated MP-02 spec, removed outdated implementation plans |
 
 ---
 
@@ -629,5 +398,96 @@ Allows proof of audit trail integrity without revealing memory content.
 |----------|---------|
 | README.md | Installation, quick start, CLI usage |
 | RECOVERY.md | Emergency data recovery using only PyNaCl |
-| MP-02-spec.md | Proof-of-Effort Receipt Protocol specification |
 | docs/INTEGRATIONS.md | Detailed integration guides for all external systems |
+
+---
+
+## Appendix A: MP-02 Proof-of-Effort Receipt Protocol
+
+### A.1 Purpose
+
+MP-02 defines the protocol by which human intellectual effort is observed, validated, and recorded as cryptographically verifiable receipts.
+
+The protocol establishes a primitive that is:
+- Verifiable without trusting the issuer
+- Human-readable over long time horizons
+- Composable with negotiation, licensing, and settlement protocols
+
+MP-02 does not assert value, ownership, or compensation. It asserts that effort occurred, with traceable provenance.
+
+### A.2 Design Principles
+
+- **Process Over Artifact** — Effort is validated as a process unfolding over time, not a single output
+- **Continuity Matters** — Temporal progression is a primary signal of genuine work
+- **Receipts, Not Claims** — The protocol records evidence, not conclusions about value
+- **Model Skepticism** — LLM assessments are advisory and must be reproducible
+- **Partial Observability** — Uncertainty is preserved, not collapsed
+
+### A.3 Definitions
+
+| Term | Definition |
+|------|------------|
+| **Effort** | A temporally continuous sequence of human cognitive activity directed toward an intelligible goal |
+| **Signal** | A raw observable trace of effort (voice transcripts, text edits, command history, tool interaction) |
+| **Effort Segment** | A bounded time slice of signals treated as a unit of analysis |
+| **Receipt** | A cryptographic record attesting that a specific effort segment occurred |
+
+### A.4 Actors
+
+| Actor | Role |
+|-------|------|
+| Human Worker | The individual whose effort is being recorded |
+| Observer | System component responsible for capturing raw signals |
+| Validator | LLM-assisted process that analyzes effort segments for coherence and progression |
+| Ledger | Append-only system that anchors receipts and their hashes |
+
+### A.5 Protocol Requirements
+
+**Observers MUST:**
+- Time-stamp all signals
+- Preserve ordering
+- Disclose capture modality
+
+**Observers MUST NOT:**
+- Alter raw signals
+- Infer intent beyond observed data
+
+**Validators MUST:**
+- Produce deterministic summaries
+- Disclose model identity and version
+- Preserve dissent and uncertainty
+
+**Validators MUST NOT:**
+- Declare effort as valuable
+- Assert originality or ownership
+- Collapse ambiguous signals into certainty
+
+### A.6 Receipt Construction
+
+Each Effort Receipt MUST include:
+- Receipt ID
+- Time bounds
+- Hashes of referenced signals
+- Deterministic effort summary
+- Validation metadata
+- Observer and Validator identifiers
+
+### A.7 Anchoring and Verification
+
+Receipts are anchored by hashing receipt contents and appending to a ledger. The ledger MUST be append-only, time-ordered, and publicly verifiable.
+
+A third party MUST be able to recompute receipt hashes, inspect validation metadata, and confirm ledger inclusion. Trust in the Observer or Validator is not required.
+
+### A.8 Non-Goals
+
+MP-02 does NOT:
+- Measure productivity
+- Enforce labor conditions
+- Replace authorship law
+- Rank humans by output
+
+### A.9 Canonical Rule
+
+> If effort cannot be independently verified as having occurred over time, it must not be capitalized.
+
+*MP-02 is compatible with MP-01 Negotiation & Ratification protocol.*
