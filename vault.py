@@ -7,7 +7,9 @@ import os
 import uuid
 import hashlib
 import base64
+import logging
 from datetime import datetime, timedelta
+from typing import Optional, Dict, Any
 
 from nacl.utils import random as nacl_random
 
@@ -26,8 +28,34 @@ try:
         sign_root
     )
     from .db import DB_PATH, init_db
-    from .boundry import check_recall
+    from .boundry import check_recall, BoundaryClient
     from .merkle import hash_leaf, build_tree
+    from .errors import (
+        MemoryVaultError,
+        CryptoError,
+        DecryptionError,
+        EncryptionError,
+        KeyDerivationError,
+        AccessError,
+        LockdownError,
+        TombstoneError,
+        CooldownError,
+        ApprovalRequiredError,
+        ClassificationError,
+        BoundaryDeniedError,
+        DatabaseError,
+        MemoryNotFoundError,
+        ProfileNotFoundError,
+        ProfileExistsError,
+        ProfileKeyMissingError,
+        IntegrityError,
+        MerkleVerificationError,
+        BackupError,
+        RestoreError,
+        PhysicalTokenError,
+        Severity,
+    )
+    from .siem_reporter import SIEMReporter, SIEMConfig, get_reporter, report_event, report_exception
 except ImportError:
     from models import MemoryObject
     from crypto import (
@@ -40,8 +68,37 @@ except ImportError:
         sign_root
     )
     from db import DB_PATH, init_db
-    from boundry import check_recall
+    from boundry import check_recall, BoundaryClient
     from merkle import hash_leaf, build_tree
+    from errors import (
+        MemoryVaultError,
+        CryptoError,
+        DecryptionError,
+        EncryptionError,
+        KeyDerivationError,
+        AccessError,
+        LockdownError,
+        TombstoneError,
+        CooldownError,
+        ApprovalRequiredError,
+        ClassificationError,
+        BoundaryDeniedError,
+        DatabaseError,
+        MemoryNotFoundError,
+        ProfileNotFoundError,
+        ProfileExistsError,
+        ProfileKeyMissingError,
+        IntegrityError,
+        MerkleVerificationError,
+        BackupError,
+        RestoreError,
+        PhysicalTokenError,
+        Severity,
+    )
+    from siem_reporter import SIEMReporter, SIEMConfig, get_reporter, report_event, report_exception
+
+
+logger = logging.getLogger(__name__)
 
 # Optional integration imports
 try:
@@ -78,17 +135,70 @@ def validate_profile_id(profile_id: str) -> None:
 
 
 class MemoryVault:
-    def __init__(self, db_path: str = None):
+    def __init__(
+        self,
+        db_path: str = None,
+        siem_config: SIEMConfig = None,
+        enable_siem: bool = True
+    ):
         """
         Initialize the MemoryVault.
 
         Args:
             db_path: Optional path to the database file. If not provided, uses default DB_PATH.
+            siem_config: Optional SIEM configuration. If None, reads from environment.
+            enable_siem: Whether to enable SIEM reporting (default True).
         """
         self.db_path = db_path if db_path else DB_PATH
         self._conn = init_db(self.db_path)
         self.profile_keys = {}  # Cache non-TPM keys
         self.signing_key = load_or_create_signing_key()  # For signed Merkle roots
+
+        # Initialize SIEM reporter
+        self._siem_enabled = enable_siem
+        if enable_siem:
+            if siem_config:
+                self._siem_reporter = SIEMReporter(siem_config)
+            else:
+                self._siem_reporter = get_reporter()
+        else:
+            self._siem_reporter = None
+
+        # Initialize boundary client with SIEM integration
+        self._boundary_client = BoundaryClient(siem_reporter=self._siem_reporter)
+
+        # Report vault initialization to SIEM
+        self._report_event(
+            action="vault.init",
+            outcome="success",
+            severity=Severity.INFO,
+            metadata={"db_path": self.db_path}
+        )
+
+    def _report_event(
+        self,
+        action: str,
+        outcome: str = "success",
+        severity: int = Severity.INFO,
+        actor: Dict[str, str] = None,
+        target: Dict[str, str] = None,
+        metadata: Dict[str, Any] = None
+    ) -> None:
+        """Report event to SIEM if enabled."""
+        if self._siem_reporter:
+            self._siem_reporter.report_event(
+                action=action,
+                outcome=outcome,
+                severity=int(severity),
+                actor=actor,
+                target=target,
+                metadata=metadata
+            )
+
+    def _report_exception(self, exc: MemoryVaultError) -> None:
+        """Report exception to SIEM if enabled."""
+        if self._siem_reporter:
+            self._siem_reporter.report_exception(exc)
 
     @property
     def conn(self):
@@ -96,10 +206,24 @@ class MemoryVault:
         return sqlite3.connect(self.db_path)
 
     def close(self):
-        """Close the initial database connection."""
+        """Close the vault and cleanup resources."""
+        # Report vault shutdown to SIEM
+        self._report_event(
+            action="vault.close",
+            outcome="success",
+            severity=Severity.INFO,
+            metadata={"db_path": self.db_path}
+        )
+
         if self._conn:
             self._conn.close()
             self._conn = None
+
+    def shutdown(self):
+        """Full shutdown including SIEM reporter."""
+        self.close()
+        if self._siem_reporter and hasattr(self._siem_reporter, 'shutdown'):
+            self._siem_reporter.shutdown()
 
     # ==================== Profile Management ====================
 
@@ -274,10 +398,42 @@ class MemoryVault:
         passphrase: str = None,
         skip_boundary_check: bool = False
     ) -> bytes:
+        """
+        Recall a memory from the vault.
+
+        Args:
+            memory_id: ID of the memory to recall
+            justification: Reason for recall (required for audit)
+            requester: Who is requesting the recall
+            passphrase: Optional passphrase for HumanPassphrase profiles
+            skip_boundary_check: Skip boundary daemon check (for testing)
+
+        Returns:
+            Decrypted memory content
+
+        Raises:
+            LockdownError: Vault is in lockdown mode
+            MemoryNotFoundError: Memory does not exist
+            TombstoneError: Memory has been tombstoned
+            BoundaryDeniedError: Boundary daemon denied access
+            ApprovalRequiredError: Human approval was denied
+            CooldownError: Cooldown period active
+            PhysicalTokenError: Physical token required but not present
+            DecryptionError: Failed to decrypt memory
+        """
+        actor_info = {"type": "agent", "id": requester}
+        target_info = {"type": "memory", "id": memory_id}
+
         # Check lockdown status first
         is_locked, since, reason = self.is_locked_down()
         if is_locked:
-            raise PermissionError(f"Vault is in LOCKDOWN since {since}: {reason}")
+            exc = LockdownError(
+                f"Vault is in LOCKDOWN since {since}: {reason}",
+                lockdown_reason=reason,
+                actor=actor_info
+            )
+            self._report_exception(exc)
+            raise exc
 
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -285,7 +441,13 @@ class MemoryVault:
         row = c.fetchone()
         if not row:
             conn.close()
-            raise ValueError("Memory not found")
+            exc = MemoryNotFoundError(
+                f"Memory '{memory_id}' not found",
+                actor=actor_info,
+                metadata={"memory_id": memory_id}
+            )
+            self._report_exception(exc)
+            raise exc
 
         # Capture column names immediately after query
         columns = [d[0] for d in c.description]
@@ -294,7 +456,16 @@ class MemoryVault:
         # Check if memory is tombstoned
         if row_dict.get("tombstoned"):
             conn.close()
-            raise PermissionError(f"Memory is TOMBSTONED: {row_dict.get('tombstone_reason') or 'No reason provided'}")
+            exc = TombstoneError(
+                f"Memory is TOMBSTONED: {row_dict.get('tombstone_reason') or 'No reason provided'}",
+                actor=actor_info,
+                metadata={
+                    "memory_id": memory_id,
+                    "tombstone_reason": row_dict.get("tombstone_reason")
+                }
+            )
+            self._report_exception(exc)
+            raise exc
 
         classification = row_dict["classification"]
         encryption_profile = row_dict["encryption_profile"]
@@ -306,12 +477,19 @@ class MemoryVault:
 
         # 1. Boundary check (skip if requested, e.g., for testing)
         if not skip_boundary_check:
-            permitted, reason = check_recall(classification)
+            permitted, boundary_reason = check_recall(classification)
             if not permitted:
-                self._log_recall(c, memory_id, requester, False, justification + f" | boundary: {reason}")
+                self._log_recall(c, memory_id, requester, False, justification + f" | boundary: {boundary_reason}")
                 conn.commit()
                 conn.close()
-                raise PermissionError(f"Boundary check failed: {reason}")
+                exc = BoundaryDeniedError(
+                    f"Boundary check failed: {boundary_reason}",
+                    reason=boundary_reason,
+                    actor=actor_info,
+                    metadata={"memory_id": memory_id, "classification": classification}
+                )
+                self._report_exception(exc)
+                raise exc
 
         # 2. Human approval
         if classification >= 3:
@@ -321,7 +499,13 @@ class MemoryVault:
                 self._log_recall(c, memory_id, requester, False, justification + " | human denied")
                 conn.commit()
                 conn.close()
-                raise PermissionError("Recall denied by human")
+                exc = ApprovalRequiredError(
+                    "Recall denied by human",
+                    actor=actor_info,
+                    metadata={"memory_id": memory_id, "classification": classification}
+                )
+                self._report_exception(exc)
+                raise exc
 
         # 3. Cooldown
         cooldown = access_policy.get("cooldown_seconds", 0)
@@ -332,7 +516,14 @@ class MemoryVault:
                 self._log_recall(c, memory_id, requester, False, f"cooldown: {remaining}s")
                 conn.commit()
                 conn.close()
-                raise PermissionError(f"Cooldown active — {remaining}s remaining")
+                exc = CooldownError(
+                    f"Cooldown active — {remaining}s remaining",
+                    remaining_seconds=remaining,
+                    actor=actor_info,
+                    metadata={"memory_id": memory_id, "cooldown_seconds": cooldown}
+                )
+                self._report_exception(exc)
+                raise exc
 
         # 4. Physical token (Level 5 only)
         if classification == 5:
@@ -345,7 +536,13 @@ class MemoryVault:
                 self._log_recall(c, memory_id, requester, False, justification + " | token absent")
                 conn.commit()
                 conn.close()
-                raise PermissionError("Physical token required but not presented")
+                exc = PhysicalTokenError(
+                    "Physical token required but not presented",
+                    actor=actor_info,
+                    metadata={"memory_id": memory_id, "classification": classification}
+                )
+                self._report_exception(exc)
+                raise exc
             print("✓ Physical token confirmed\n")
 
         # 5. Key & decrypt
@@ -359,18 +556,27 @@ class MemoryVault:
                 except ImportError:
                     from crypto import tpm_unseal_key
                 if not sealed_blob:
-                    raise PermissionError("TPM sealed key missing")
+                    raise ProfileKeyMissingError("TPM sealed key missing")
                 key = tpm_unseal_key(sealed_blob)
             elif passphrase and key_source == "HumanPassphrase":
                 key, _ = derive_key_from_passphrase(passphrase, salt)
                 self.profile_keys[encryption_profile] = key
             else:
                 key = self._get_or_prompt_key(encryption_profile, key_source, salt)
+        except MemoryVaultError:
+            raise
         except Exception as e:
             self._log_recall(c, memory_id, requester, False, f"key error: {e}")
             conn.commit()
             conn.close()
-            raise PermissionError(f"Key access failed: {e}")
+            exc = ProfileKeyMissingError(
+                f"Key access failed: {e}",
+                actor=actor_info,
+                metadata={"memory_id": memory_id, "profile": encryption_profile},
+                cause=e
+            )
+            self._report_exception(exc)
+            raise exc
 
         try:
             plaintext = decrypt_memory(key, ciphertext, nonce)
@@ -378,12 +584,33 @@ class MemoryVault:
             self._log_recall(c, memory_id, requester, False, f"decrypt error: {e}")
             conn.commit()
             conn.close()
-            raise RuntimeError("Decryption failed")
+            exc = DecryptionError(
+                "Decryption failed - possible tampering or wrong key",
+                actor=actor_info,
+                metadata={"memory_id": memory_id, "profile": encryption_profile},
+                cause=e
+            )
+            self._report_exception(exc)
+            raise exc
 
         # 6. Log success + update Merkle tree
         self._log_recall(c, memory_id, requester, True, justification)
         conn.commit()
         conn.close()
+
+        # Report successful recall to SIEM
+        self._report_event(
+            action="memory.recall",
+            outcome="success",
+            severity=Severity.INFO,
+            actor=actor_info,
+            target=target_info,
+            metadata={
+                "classification": classification,
+                "justification": justification
+            }
+        )
+
         return plaintext
 
     # ==================== Audit Logging + Merkle + Signing ====================
