@@ -4,20 +4,41 @@
 
 Memory Vault is a cryptographically enforced storage system designed for AI agent ecosystems, providing classification-bound access control, tamper-evident auditing, hardware-bound secrets, and human-in-the-loop controls.
 
+**Version:** 1.1.0 | **Status:** Production (Feature Complete)
+
 ## Features
 
+### Core Security
 - **6-Level Classification System** (0-5): From ephemeral to physically-gated secrets
 - **Multiple Encryption Profiles**: Passphrase, keyfile, or TPM-sealed keys
+- **AES-256-GCM Encryption**: Authenticated encryption via libsodium
+- **Argon2id Key Derivation**: Maximum security parameters (1GB memory)
+- **Hardware-Bound Secrets**: Optional TPM sealing for maximum security
+
+### Access Control
 - **Boundary Daemon Integration**: Runtime environment checks via Unix socket
 - **Human Approval Gates**: Explicit consent for high-classification recalls
 - **Cooldown Enforcement**: Configurable per-memory access throttling
-- **Full-Text Search**: FTS5 on metadata and recall justifications
-- **Encrypted Backups**: Full + incremental backup chain with tracking
+- **Physical Token Support**: Level 5 memories require FIDO2/YubiKey/TOTP
+- **Lockdown Mode**: Emergency disable of all recalls
+
+### Audit & Integrity
 - **Tamper-Evident Audit Trail**: Merkle tree over all recall events
 - **Signed Merkle Roots**: Ed25519 signatures with optional TPM sealing
-- **Physical Token Support**: Level 5 memories require FIDO2/YubiKey/TOTP
+- **Zero-Knowledge Proofs**: Prove memory existence without revealing content
+- **NatLangChain Anchoring**: Immutable blockchain audit trails
+
+### Recovery & Succession
+- **Encrypted Backups**: Full + incremental backup chain with tracking
 - **Dead-Man Switch**: Encrypted heir release on owner absence
-- **Hardware-Bound Secrets**: Optional TPM sealing for maximum security
+- **Key Escrow**: Shamir's Secret Sharing for quorum recovery
+- **Memory Tombstones**: Mark inaccessible but retain for audit
+
+### Integrations
+- **IntentLog Adapter**: Bidirectional linking with intent tracking systems
+- **Agent-OS Governance**: Constitution-based access control
+- **MP-02 Proof-of-Effort**: Cryptographic effort receipts for human work
+- **Full-Text Search**: FTS5 on metadata and recall justifications
 
 ## Installation
 
@@ -186,37 +207,198 @@ python -m memory_vault.cli search-metadata "credential OR key"
 python -m memory_vault.cli search-justifications "emergency"
 ```
 
+## Lockdown Mode
+
+```bash
+# Enable lockdown (disables ALL recalls)
+python -m memory_vault.cli lockdown --reason "Security incident"
+
+# Check status
+python -m memory_vault.cli lockdown-status
+
+# Disable lockdown
+python -m memory_vault.cli unlock
+```
+
+## Key Rotation
+
+```bash
+# Rotate encryption key for a profile
+python -m memory_vault.cli rotate-key my-profile
+```
+
+## Memory Tombstones
+
+```bash
+# Tombstone a memory (mark inaccessible, retain for audit)
+python -m memory_vault.cli tombstone <memory_id> --reason "Deprecated"
+
+# List tombstoned memories
+python -m memory_vault.cli tombstone-list
+
+# Check if a memory is tombstoned
+python -m memory_vault.cli tombstone-check <memory_id>
+```
+
+## IntentLog Integration
+
+```bash
+# Link a memory to an intent ID
+python -m memory_vault.cli intent-link <memory_id> <intent_id>
+
+# Unlink an intent
+python -m memory_vault.cli intent-unlink <memory_id> <intent_id>
+
+# Search memories by intent
+python -m memory_vault.cli intent-search "goal:complete-feature"
+
+# Get all intents for a memory
+python -m memory_vault.cli intent-get <memory_id>
+```
+
+## Zero-Knowledge Proofs
+
+```bash
+# Generate existence commitment (proves memory exists without revealing content)
+python -m memory_vault.cli zk-commitment <memory_id>
+
+# Verify an existence commitment
+python -m memory_vault.cli zk-verify <commitment_json>
+
+# Generate time-bound existence proof
+python -m memory_vault.cli zk-time-proof <memory_id>
+```
+
+## Key Escrow (Shamir's Secret Sharing)
+
+```bash
+# Create 3-of-5 key escrow
+python -m memory_vault.cli escrow-create my-profile \
+  --threshold 3 \
+  --recipients "alice:pubkey1,bob:pubkey2,charlie:pubkey3,dave:pubkey4,eve:pubkey5"
+
+# List escrows
+python -m memory_vault.cli escrow-list
+
+# Get escrow details
+python -m memory_vault.cli escrow-info <escrow_id>
+
+# Export shard for recipient
+python -m memory_vault.cli escrow-export <escrow_id> alice --output alice-shard.json
+
+# Delete escrow
+python -m memory_vault.cli escrow-delete <escrow_id>
+```
+
+## NatLangChain Blockchain
+
+```bash
+# Set API endpoint
+export NATLANGCHAIN_API_URL="http://localhost:8000"
+
+# Anchor memory to blockchain
+python -m memory_vault.cli chain-anchor <memory_id>
+
+# Verify blockchain anchor
+python -m memory_vault.cli chain-verify <memory_id>
+
+# Get chain history
+python -m memory_vault.cli chain-history <memory_id>
+
+# Check connection status
+python -m memory_vault.cli chain-status
+```
+
+## MP-02 Proof-of-Effort
+
+```bash
+# Start effort observation
+python -m memory_vault.cli effort-start --reason "Implementing feature X"
+
+# Record effort signals
+python -m memory_vault.cli effort-signal text_edit "Updated authentication handler"
+python -m memory_vault.cli effort-signal decision "Chose JWT over sessions"
+python -m memory_vault.cli effort-marker "Phase 1 complete"
+
+# Stop observation
+python -m memory_vault.cli effort-stop --reason "Feature complete"
+
+# Validate effort segment
+python -m memory_vault.cli effort-validate <segment_id>
+
+# Generate signed receipt (optionally anchored to blockchain)
+python -m memory_vault.cli effort-receipt <segment_id> --memory-id <memory_id>
+
+# List pending segments
+python -m memory_vault.cli effort-pending
+
+# Get receipts for a memory
+python -m memory_vault.cli effort-get <memory_id>
+```
+
+## Agent-OS Governance
+
+```bash
+# View governance summary
+python -m memory_vault.cli governance-status
+
+# Check boundary daemon status
+python -m memory_vault.cli boundary-status
+
+# Check governance permission
+python -m memory_vault.cli governance-check <agent_id> <action> <memory_id>
+```
+
 ## Architecture
 
 ```
 memory_vault/
-├── __init__.py       - Package initialization
-├── vault.py          - Core MemoryVault API
-├── db.py             - SQLite schema, migrations, FTS, indexes
-├── crypto.py         - All cryptographic operations
-├── merkle.py         - Merkle tree construction & verification
-├── boundry.py        - Boundary daemon integration
-├── models.py         - Dataclasses (MemoryObject, etc.)
-├── physical_token.py - Physical token authentication
-├── deadman.py        - Dead-man switch functionality
-└── cli.py            - Command-line interface
+├── __init__.py         - Package initialization
+├── vault.py            - Core MemoryVault API (~1,400 lines)
+├── db.py               - SQLite schema, migrations, FTS5, indexes
+├── crypto.py           - AES-256-GCM, Argon2id, Ed25519, TPM sealing
+├── merkle.py           - Merkle tree construction & verification
+├── models.py           - Dataclasses (MemoryObject, etc.)
+├── cli.py              - Command-line interface (~40 subcommands)
+├── boundry.py          - Boundary daemon Unix socket client
+├── physical_token.py   - FIDO2, HMAC, TOTP token authentication
+├── deadman.py          - Dead-man switch & heir management
+├── intentlog.py        - IntentLog bidirectional linking adapter
+├── zkproofs.py         - Zero-knowledge existence proofs
+├── escrow.py           - Shamir's Secret Sharing key escrow
+├── natlangchain.py     - NatLangChain blockchain anchoring
+├── effort.py           - MP-02 Proof-of-Effort receipts
+└── agent_os.py         - Agent-OS governance integration
 ```
 
 ## Security
 
 - **AES-256-GCM** encryption via libsodium (PyNaCl)
-- **Argon2id** key derivation with maximum security parameters
+- **Argon2id** key derivation with maximum security parameters (1GB memory, 4 iterations)
 - **Ed25519** signed Merkle audit trail
 - **TPM support** for hardware-bound keys (optional)
+- **Zero-knowledge proofs** for existence verification without content exposure
 
 See [SPECIFICATION.md](SPECIFICATION.md) for detailed security model and threat analysis.
 
 ## Dependencies
 
-- `pynacl>=1.5.0` - Core cryptography (required)
-- `tpm2-pytss>=2.1.0` - TPM support (optional, Linux only)
-- `fido2>=1.1.0` - FIDO2/U2F tokens (optional)
-- `pyotp>=2.8.0` - TOTP/HOTP fallback (optional)
+### Required
+- `pynacl>=1.5.0` - Core cryptography (AES-256-GCM, Argon2id, Ed25519)
+- Python 3.7+ standard library (sqlite3, json, hashlib, uuid, datetime, base64)
+
+### Optional
+- `tpm2-pytss>=2.1.0` - TPM 2.0 support (Linux only)
+- `fido2>=1.1.0` - FIDO2/U2F hardware tokens
+- `pyotp>=2.8.0` - TOTP/HOTP software tokens
+
+## Related Documentation
+
+| Document | Purpose |
+|----------|---------|
+| [SPECIFICATION.md](SPECIFICATION.md) | Full technical specification and threat model |
+| [RECOVERY.md](RECOVERY.md) | Emergency data recovery using only PyNaCl |
+| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Detailed integration guides for all external systems |
 
 ## License
 
