@@ -194,8 +194,9 @@ class TestMemoryVault:
         vault.store_memory(memory, passphrase=sample_passphrase)
 
         # Verify metadata is stored (via search)
+        # Note: FTS5 treats hyphens specially, so use quotes for literal search
         from db import search_memories_metadata
-        results = search_memories_metadata(vault.conn, "unit-test")
+        results = search_memories_metadata(vault.conn, '"unit-test"')
         assert len(results) > 0
 
     def test_classification_levels(self, temp_vault_dir, sample_passphrase, sample_content):
@@ -300,13 +301,15 @@ class TestBackupRestore:
 
         assert backup_path.exists()
 
-        # Verify backup content is valid JSON
+        # Verify backup content is valid encrypted JSON
         with open(backup_path) as f:
             backup_data = json.load(f)
 
-        assert "memories" in backup_data
-        assert "profiles" in backup_data
-        assert "metadata" in backup_data
+        # Backup is encrypted - check for encrypted format fields
+        assert "version" in backup_data
+        assert "salt" in backup_data
+        assert "nonce" in backup_data
+        assert "ciphertext" in backup_data
 
     def test_restore_recovers_data(self, temp_vault_dir, sample_passphrase, sample_content):
         """Verify restore recovers backed up data."""
@@ -317,7 +320,8 @@ class TestBackupRestore:
             profile_id="restore-profile",
             cipher="AES-256-GCM",
             key_source="HumanPassphrase",
-            passphrase=sample_passphrase
+            passphrase=sample_passphrase,
+            exportable=True  # Required for backup/restore
         )
 
         memory = MemoryObject(
@@ -345,7 +349,8 @@ class TestBackupRestore:
         vault2 = MemoryVault(str(db_path))
         vault2.restore(
             backup_file=str(backup_path),
-            passphrase=sample_passphrase
+            passphrase=sample_passphrase,
+            skip_confirmation=True
         )
 
         # Verify data was restored
@@ -394,7 +399,7 @@ class TestIntegrity:
 
         # Verify integrity
         result = vault.verify_integrity()
-        assert result['valid'] is True
+        assert result is True
 
 
 class TestLockdown:
@@ -470,7 +475,8 @@ class TestTombstones:
         # Tombstone the memory
         vault.tombstone_memory(
             memory_id="tombstone-test",
-            reason="Test tombstone"
+            reason="Test tombstone",
+            skip_confirmation=True
         )
 
         # Recall should fail

@@ -357,11 +357,31 @@ _conn.close()
 
 # === Full-Text Search Helpers ===
 
-def search_memories_metadata(query: str, limit: int = 20) -> list[dict]:
-    conn = sqlite3.connect(DB_PATH)
+def search_memories_metadata(conn_or_query, query_or_limit=None, limit: int = 20) -> list[dict]:
+    """
+    Search memories by metadata using FTS5.
+
+    Can be called as:
+        search_memories_metadata("search term")
+        search_memories_metadata("search term", 10)
+        search_memories_metadata(connection, "search term")
+        search_memories_metadata(connection, "search term", 10)
+    """
+    # Handle both (query) and (conn, query) signatures
+    if isinstance(conn_or_query, sqlite3.Connection):
+        conn = conn_or_query
+        query = query_or_limit
+        should_close = False
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        query = conn_or_query
+        if query_or_limit is not None:
+            limit = query_or_limit
+        should_close = True
+
     c = conn.cursor()
     c.execute('''
-        SELECT m.memory_id, m.classification, snippet(memories_fts, 1) AS preview
+        SELECT m.memory_id, m.classification, snippet(memories_fts, 1, '[', ']', '...', 32) AS preview
         FROM memories_fts
         JOIN memories m ON m.memory_id = memories_fts.memory_id
         WHERE memories_fts.value_metadata MATCH ?
@@ -369,15 +389,36 @@ def search_memories_metadata(query: str, limit: int = 20) -> list[dict]:
         LIMIT ?
     ''', (query, limit))
     results = [{"memory_id": r[0], "classification": r[1], "preview": r[2]} for r in c.fetchall()]
-    conn.close()
+    if should_close:
+        conn.close()
     return results
 
 
-def search_recall_justifications(query: str, limit: int = 20) -> list[dict]:
-    conn = sqlite3.connect(DB_PATH)
+def search_recall_justifications(conn_or_query, query_or_limit=None, limit: int = 20) -> list[dict]:
+    """
+    Search recall justifications using FTS5.
+
+    Can be called as:
+        search_recall_justifications("search term")
+        search_recall_justifications("search term", 10)
+        search_recall_justifications(connection, "search term")
+        search_recall_justifications(connection, "search term", 10)
+    """
+    # Handle both (query) and (conn, query) signatures
+    if isinstance(conn_or_query, sqlite3.Connection):
+        conn = conn_or_query
+        query = query_or_limit
+        should_close = False
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        query = conn_or_query
+        if query_or_limit is not None:
+            limit = query_or_limit
+        should_close = True
+
     c = conn.cursor()
     c.execute('''
-        SELECT rl.request_id, rl.memory_id, rl.timestamp, rl.approved, snippet(recall_log_fts, 2) AS preview
+        SELECT rl.request_id, rl.memory_id, rl.timestamp, rl.approved, snippet(recall_log_fts, 2, '[', ']', '...', 32) AS preview
         FROM recall_log_fts
         JOIN recall_log rl ON rl.request_id = recall_log_fts.request_id
         WHERE recall_log_fts.justification MATCH ?
@@ -393,5 +434,6 @@ def search_recall_justifications(query: str, limit: int = 20) -> list[dict]:
             "preview": r[4]
         } for r in c.fetchall()
     ]
-    conn.close()
+    if should_close:
+        conn.close()
     return results
