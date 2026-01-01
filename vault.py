@@ -514,16 +514,19 @@ class MemoryVault:
                 memory_dict["ciphertext"] = None
                 memory_dict["nonce"] = None
                 memory_dict["sealed_blob"] = None
+                memory_dict["salt"] = None
             else:
                 # Convert binary data to base64 for JSON serialization
                 if memory_dict["ciphertext"]:
                     memory_dict["ciphertext"] = base64.b64encode(memory_dict["ciphertext"]).decode()
                 if memory_dict["nonce"]:
                     memory_dict["nonce"] = base64.b64encode(memory_dict["nonce"]).decode()
-                if memory_dict["salt"]:
-                    memory_dict["salt"] = base64.b64encode(memory_dict["salt"]).decode()
                 if memory_dict["sealed_blob"]:
                     memory_dict["sealed_blob"] = base64.b64encode(memory_dict["sealed_blob"]).decode()
+
+            # Salt is always needed for passphrase-based profiles, encode regardless of export status
+            if memory_dict.get("salt"):
+                memory_dict["salt"] = base64.b64encode(memory_dict["salt"]).decode()
 
             memories.append(memory_dict)
 
@@ -575,13 +578,14 @@ class MemoryVault:
         print(f"  Memories: {len(memories)}")
         print(f"  Backup ID: {backup_id}")
 
-    def restore(self, backup_file: str, passphrase: str = None) -> None:
+    def restore(self, backup_file: str, passphrase: str = None, skip_confirmation: bool = False) -> None:
         """
         Restore vault from encrypted backup.
 
         Args:
             backup_file: Path to backup file
             passphrase: Decryption passphrase (will prompt if None)
+            skip_confirmation: If True, skip interactive confirmation (for testing)
         """
         import getpass
 
@@ -612,10 +616,11 @@ class MemoryVault:
         print(f"Created: {backup_data['timestamp']}")
         print(f"Memories: {backup_data['memory_count']}")
 
-        confirm = input("\nThis will merge data into current vault. Continue? (yes/no): ")
-        if confirm.lower() != "yes":
-            print("Restore cancelled")
-            return
+        if not skip_confirmation:
+            confirm = input("\nThis will merge data into current vault. Continue? (yes/no): ")
+            if confirm.lower() != "yes":
+                print("Restore cancelled")
+                return
 
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
@@ -684,7 +689,10 @@ class MemoryVault:
         Returns:
             bool: True if verification passes
         """
-        from .merkle import rebuild_merkle_tree, verify_proof
+        try:
+            from .merkle import rebuild_merkle_tree, verify_proof
+        except ImportError:
+            from merkle import rebuild_merkle_tree, verify_proof
 
         conn = sqlite3.connect(self.db_path)
 
@@ -1269,7 +1277,7 @@ class MemoryVault:
 
     # ==================== Memory Tombstones ====================
 
-    def tombstone_memory(self, memory_id: str, reason: str) -> bool:
+    def tombstone_memory(self, memory_id: str, reason: str, skip_confirmation: bool = False) -> bool:
         """
         Mark a memory as tombstoned (inaccessible but retained for audit).
 
@@ -1282,6 +1290,7 @@ class MemoryVault:
         Args:
             memory_id: The memory to tombstone
             reason: Reason for tombstoning
+            skip_confirmation: If True, skip interactive confirmation (for testing)
 
         Returns:
             bool: True if tombstoned successfully
@@ -1315,22 +1324,23 @@ class MemoryVault:
         print("="*50)
         print(f"\nClassification: Level {classification}")
         print(f"Reason: {reason}")
-        print("\nThis will mark the memory as INACCESSIBLE.")
-        print("The memory will be retained for audit but cannot be recalled.")
+        if not skip_confirmation:
+            print("\nThis will mark the memory as INACCESSIBLE.")
+            print("The memory will be retained for audit but cannot be recalled.")
 
-        # Level 3+ requires physical token
-        if classification >= 3:
-            print("\nPhysical token required for Level 3+ tombstoning.\n")
-            if not require_physical_token("Tombstone high-security memory"):
+            # Level 3+ requires physical token
+            if classification >= 3:
+                print("\nPhysical token required for Level 3+ tombstoning.\n")
+                if not require_physical_token("Tombstone high-security memory"):
+                    conn.close()
+                    print("Tombstone aborted: Physical token required")
+                    return False
+
+            confirm = input("Type 'TOMBSTONE' to confirm: ").strip()
+            if confirm != "TOMBSTONE":
                 conn.close()
-                print("Tombstone aborted: Physical token required")
+                print("Tombstone aborted")
                 return False
-
-        confirm = input("Type 'TOMBSTONE' to confirm: ").strip()
-        if confirm != "TOMBSTONE":
-            conn.close()
-            print("Tombstone aborted")
-            return False
 
         timestamp = datetime.utcnow().isoformat() + "Z"
 
