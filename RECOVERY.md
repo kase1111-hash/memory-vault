@@ -1,7 +1,7 @@
 # Memory Vault Recovery Guide
 
-**Version:** 1.0
-**Last Updated:** December 19, 2025
+**Version:** 1.1
+**Last Updated:** January 1, 2026
 
 This document explains how to recover encrypted data from Memory Vault using only written values and the PyNaCl library. **No Memory Vault code is required for recovery.**
 

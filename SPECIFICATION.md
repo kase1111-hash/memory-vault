@@ -1,7 +1,7 @@
 # Memory Vault Specification
 
-**Version:** 1.6
-**Last Updated:** December 31, 2025
+**Version:** 1.7
+**Last Updated:** January 1, 2026
 **Status:** Production (Feature Complete)
 
 ---
@@ -169,7 +169,7 @@ The Vault refuses recall if:
 | Ed25519 signed Merkle roots | Implemented |
 | Full integrity verification CLI | Implemented |
 | Recall logs hashed and chained | Implemented |
-| Zero-knowledge proofs of existence | Not implemented |
+| Zero-knowledge existence proofs | Implemented |
 
 Allows proof of audit trail integrity without revealing memory content.
 
@@ -181,12 +181,12 @@ Allows proof of audit trail integrity without revealing memory content.
 
 - Triggered by owner or anomaly
 - All recall disabled
-- **Status:** Not implemented (see Section 14.1.2 for plan)
+- **Status:** Implemented
 
 ### 9.2 Memory Tombstones
 
 - Memories marked inaccessible but retained for audit
-- **Status:** Not implemented (see Section 14.2.1 for plan)
+- **Status:** Implemented
 
 ### 9.3 Owner Death / Transfer
 
@@ -195,7 +195,7 @@ Allows proof of audit trail integrity without revealing memory content.
 | Dead-man switches | Implemented |
 | Encrypted release to designated heirs | Implemented |
 | Physical token required for arming | Implemented |
-| Escrowed keys (Shamir's Secret Sharing) | Not implemented |
+| Escrowed keys (Shamir's Secret Sharing) | Implemented |
 
 ### 9.4 Backup & Recovery
 
@@ -321,11 +321,14 @@ TPM sealing/unsealing code exists but hasn't been validated on real hardware.
 | boundry.py | Boundary daemon Unix socket client | Production (typo in name) |
 | deadman.py | Dead-man switch, heir management, encrypted payloads | Production |
 | models.py | MemoryObject and related dataclasses | Production |
-| cli.py | Complete command-line interface | Production |
+| cli.py | Complete command-line interface (~40 subcommands) | Production |
 | physical_token.py | Physical token authentication (FIDO2, HMAC, TOTP) | Production |
 | intentlog.py | IntentLog bidirectional linking adapter | Production |
 | zkproofs.py | Zero-knowledge existence proofs | Production |
 | escrow.py | Shamir's Secret Sharing key escrow | Production |
+| natlangchain.py | NatLangChain blockchain anchoring | Production |
+| agent_os.py | Agent-OS governance integration | Production |
+| effort.py | MP-02 Proof-of-Effort receipt protocol | Production |
 
 ---
 
@@ -348,6 +351,7 @@ TPM sealing/unsealing code exists but hasn't been validated on real hardware.
 | 1.4 | Dec 22, 2025 | Implemented Level 0 auto-purge, lockdown mode, key rotation; added vault_state table |
 | 1.5 | Dec 22, 2025 | Implemented tombstones, IntentLog adapter, ZK proofs, escrowed keys (Shamir SSS) |
 | 1.6 | Dec 31, 2025 | Documentation cleanup: consolidated MP-02 spec, removed outdated implementation plans |
+| 1.7 | Jan 1, 2026 | Full documentation update: added all modules to file inventory, updated implementation status |
 
 ---
 
