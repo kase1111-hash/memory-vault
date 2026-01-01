@@ -14,59 +14,106 @@ Integrations:
 __version__ = "1.1.0"
 __author__ = "kase1111-hash"
 
-from .vault import MemoryVault
-from .models import MemoryObject, EncryptionProfile, RecallRequest
-from .db import init_db, search_memories_metadata, search_recall_justifications
+# Support both package import (pip install) and direct module import
+try:
+    from .vault import MemoryVault
+    from .models import MemoryObject, EncryptionProfile, RecallRequest
+    from .db import init_db, search_memories_metadata, search_recall_justifications
+except ImportError:
+    from vault import MemoryVault
+    from models import MemoryObject, EncryptionProfile, RecallRequest
+    from db import init_db, search_memories_metadata, search_recall_justifications
 
 # NatLangChain integration
 try:
-    from .natlangchain import (
-        NatLangChainClient,
-        NatLangEntry,
-        ChainProof,
-        anchor_memory_to_chain,
-        anchor_effort_receipt,
-        verify_memory_anchor,
-        get_memory_chain_history,
-    )
+    try:
+        from .natlangchain import (
+            NatLangChainClient,
+            NatLangEntry,
+            ChainProof,
+            anchor_memory_to_chain,
+            anchor_effort_receipt,
+            verify_memory_anchor,
+            get_memory_chain_history,
+        )
+    except ImportError:
+        from natlangchain import (
+            NatLangChainClient,
+            NatLangEntry,
+            ChainProof,
+            anchor_memory_to_chain,
+            anchor_effort_receipt,
+            verify_memory_anchor,
+            get_memory_chain_history,
+        )
     NATLANGCHAIN_AVAILABLE = True
 except ImportError:
     NATLANGCHAIN_AVAILABLE = False
 
 # MP-02 Effort tracking
 try:
-    from .effort import (
-        EffortObserver,
-        EffortValidator,
-        EffortReceipt,
-        EffortSegment,
-        Signal,
-        SignalType,
-        generate_receipt,
-        get_receipt,
-        get_receipts_for_memory,
-        link_receipt_to_memory,
-        list_pending_segments,
-    )
+    try:
+        from .effort import (
+            EffortObserver,
+            EffortValidator,
+            EffortReceipt,
+            EffortSegment,
+            Signal,
+            SignalType,
+            generate_receipt,
+            get_receipt,
+            get_receipts_for_memory,
+            link_receipt_to_memory,
+            list_pending_segments,
+        )
+    except ImportError:
+        from effort import (
+            EffortObserver,
+            EffortValidator,
+            EffortReceipt,
+            EffortSegment,
+            Signal,
+            SignalType,
+            generate_receipt,
+            get_receipt,
+            get_receipts_for_memory,
+            link_receipt_to_memory,
+            list_pending_segments,
+        )
     EFFORT_AVAILABLE = True
 except ImportError:
     EFFORT_AVAILABLE = False
 
 # Agent-OS governance
 try:
-    from .agent_os import (
-        BoundaryDaemon,
-        ConstitutionManager,
-        GovernanceLogger,
-        AgentIdentity,
-        AgentRole,
-        OperationalMode,
-        check_agent_permission,
-        require_human_authority,
-        get_governance_summary,
-        verify_vault_constitution,
-        register_memory_vault_agent,
-    )
+    try:
+        from .agent_os import (
+            BoundaryDaemon,
+            ConstitutionManager,
+            GovernanceLogger,
+            AgentIdentity,
+            AgentRole,
+            OperationalMode,
+            check_agent_permission,
+            require_human_authority,
+            get_governance_summary,
+            verify_vault_constitution,
+            register_memory_vault_agent,
+        )
+    except ImportError:
+        from agent_os import (
+            BoundaryDaemon,
+            ConstitutionManager,
+            GovernanceLogger,
+            AgentIdentity,
+            AgentRole,
+            OperationalMode,
+            check_agent_permission,
+            require_human_authority,
+            get_governance_summary,
+            verify_vault_constitution,
+            register_memory_vault_agent,
+        )
     AGENT_OS_AVAILABLE = True
 except ImportError:
     AGENT_OS_AVAILABLE = False

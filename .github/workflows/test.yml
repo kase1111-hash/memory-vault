@@ -1,4 +1,4 @@
-name: Tests
+name: CI
 
 on:
   push:
@@ -7,8 +7,53 @@ on:
     branches: [main, master]
 
 jobs:
+  lint:
+    name: Lint & Security Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pip-audit
+
+      - name: Check code formatting
+        run: ruff format --check .
+
+      - name: Run linter
+        run: ruff check .
+
+      - name: Check for security issues in code
+        run: ruff check --select=S .
+        continue-on-error: true  # Advisory for now
+
+      - name: Audit dependencies
+        run: |
+          pip install pynacl
+          pip-audit
+        continue-on-error: true  # Advisory for now
+
+      - name: Verify syntax
+        run: |
+          python -m py_compile vault.py crypto.py db.py merkle.py models.py cli.py
+
+      - name: Verify imports
+        run: |
+          pip install pynacl
+          python -c "from vault import MemoryVault; print('OK: vault imports')"
+          python -c "from crypto import derive_key_from_passphrase; print('OK: crypto imports')"
+          python -c "from models import MemoryObject; print('OK: models imports')"
+
   test:
+    name: Test (Python ${{ matrix.python-version }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    needs: lint  # Run tests only if lint passes
     strategy:
       fail-fast: false
       matrix:
@@ -35,8 +80,7 @@ jobs:
       - name: Run tests with coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         run: |
-          pip install pytest-cov
-          pytest tests/ --cov=. --cov-report=xml --cov-report=term
+          pytest tests/ --cov=. --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
@@ -46,8 +90,11 @@ jobs:
           fail_ci_if_error: false
         continue-on-error: true
 
-  lint:
+  security-scan:
+    name: Security Scan
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -56,13 +103,19 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Check syntax errors
+      - name: Install dependencies
         run: |
-          python -m py_compile vault.py crypto.py db.py merkle.py models.py cli.py
+          python -m pip install --upgrade pip
+          pip install bandit[toml]
 
-      - name: Verify imports
+      - name: Run Bandit security scan
         run: |
-          pip install pynacl
-          python -c "from vault import MemoryVault; print('OK: vault imports')"
-          python -c "from crypto import derive_key_from_passphrase; print('OK: crypto imports')"
-          python -c "from models import MemoryObject; print('OK: models imports')"
+          bandit -r . -x ./tests,./.venv,./build -f json -o bandit-report.json || true
+          bandit -r . -x ./tests,./.venv,./build -f txt
+
+      - name: Upload Bandit report
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-security-report
+          path: bandit-report.json
+        if: always()

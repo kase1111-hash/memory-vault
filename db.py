@@ -19,13 +19,21 @@ def _table_exists(c: sqlite3.Cursor, table_name: str) -> bool:
     return c.fetchone() is not None
 
 
-def init_db():
+def init_db(db_path: str = None):
     """
     Initialize the SQLite database with all required tables, indexes,
     full-text search virtual tables, and tamper-evidence structures.
     All operations are idempotent.
+
+    Args:
+        db_path: Optional path to the database file. If not provided, uses default DB_PATH.
+
+    Returns:
+        sqlite3.Connection: Connection to the initialized database.
     """
-    conn = sqlite3.connect(DB_PATH)
+    path = db_path if db_path else DB_PATH
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    conn = sqlite3.connect(path)
     c = conn.cursor()
 
     # --- Core Tables ---
@@ -324,15 +332,27 @@ def init_db():
     ''', default_profiles)
 
     conn.commit()
-    conn.close()
-    print(f"Memory Vault database initialized at {DB_PATH}")
+    print(f"Memory Vault database initialized at {path}")
+    return conn
 
 
-# Auto-initialize
-if not os.path.exists(DB_PATH):
-    init_db()
-else:
-    init_db()
+def get_connection(db_path: str = None):
+    """
+    Get a connection to the database.
+
+    Args:
+        db_path: Optional path to the database file. If not provided, uses default DB_PATH.
+
+    Returns:
+        sqlite3.Connection: Connection to the database.
+    """
+    path = db_path if db_path else DB_PATH
+    return sqlite3.connect(path)
+
+
+# Auto-initialize (close the connection after initialization)
+_conn = init_db()
+_conn.close()
 
 
 # === Full-Text Search Helpers ===

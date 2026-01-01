@@ -78,10 +78,28 @@ def validate_profile_id(profile_id: str) -> None:
 
 
 class MemoryVault:
-    def __init__(self):
-        init_db()
+    def __init__(self, db_path: str = None):
+        """
+        Initialize the MemoryVault.
+
+        Args:
+            db_path: Optional path to the database file. If not provided, uses default DB_PATH.
+        """
+        self.db_path = db_path if db_path else DB_PATH
+        self._conn = init_db(self.db_path)
         self.profile_keys = {}  # Cache non-TPM keys
         self.signing_key = load_or_create_signing_key()  # For signed Merkle roots
+
+    @property
+    def conn(self):
+        """Get a database connection."""
+        return sqlite3.connect(self.db_path)
+
+    def close(self):
+        """Close the initial database connection."""
+        if self._conn:
+            self._conn.close()
+            self._conn = None
 
     # ==================== Profile Management ====================
 
@@ -92,8 +110,9 @@ class MemoryVault:
         key_source: str = "HumanPassphrase",
         rotation_policy: str = "manual",
         exportable: bool = False,
-        generate_keyfile: bool = False
-    ) -> None:
+        generate_keyfile: bool = False,
+        passphrase: str = None
+    ) -> str:
         try:
             from .crypto import TPM_AVAILABLE
         except ImportError:
@@ -109,7 +128,7 @@ class MemoryVault:
         if key_source not in allowed:
             raise ValueError(f"Unsupported or unavailable key_source: {key_source}")
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute('SELECT 1 FROM encryption_profiles WHERE profile_id = ?', (profile_id,))
         if c.fetchone():
@@ -125,16 +144,23 @@ class MemoryVault:
             print(f"Generated keyfile: {keyfile_path}")
 
         c.execute('''
-            INSERT INTO encryption_profiles 
-            (profile_id, cipher, key_source, rotation_policy, exportable) 
+            INSERT INTO encryption_profiles
+            (profile_id, cipher, key_source, rotation_policy, exportable)
             VALUES (?, ?, ?, ?, ?)
         ''', (profile_id, cipher, key_source, rotation_policy, int(exportable)))
         conn.commit()
         conn.close()
+
+        # If passphrase provided, cache the derived key for later use
+        if passphrase and key_source == "HumanPassphrase":
+            key, _ = derive_key_from_passphrase(passphrase)
+            self.profile_keys[profile_id] = key
+
         print(f"Created profile: {profile_id} ({key_source})")
+        return profile_id
 
     def list_profiles(self) -> list[dict]:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute('SELECT profile_id, cipher, key_source, rotation_policy, exportable FROM encryption_profiles')
         rows = c.fetchall()
@@ -165,11 +191,21 @@ class MemoryVault:
 
     # ==================== Memory Operations ====================
 
-    def store_memory(self, obj: MemoryObject):
+    def store_memory(self, obj: MemoryObject, passphrase: str = None) -> str:
+        """
+        Store a memory object in the vault.
+
+        Args:
+            obj: The MemoryObject to store.
+            passphrase: Optional passphrase for HumanPassphrase profiles.
+
+        Returns:
+            The memory_id of the stored memory.
+        """
         if not 0 <= obj.classification <= 5:
             raise ValueError("Classification must be 0-5")
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute('SELECT key_source FROM encryption_profiles WHERE profile_id = ?', (obj.encryption_profile,))
         row = c.fetchone()
@@ -193,7 +229,12 @@ class MemoryVault:
             ciphertext, nonce = encrypt_memory(ephemeral_key, obj.content_plaintext)
             sealed_blob = tpm_generate_sealed_key()  # Seals ephemeral_key
         else:
-            key = self._get_or_prompt_key(obj.encryption_profile, key_source, salt)
+            # If passphrase provided, derive and cache the key
+            if passphrase and key_source == "HumanPassphrase":
+                key, _ = derive_key_from_passphrase(passphrase, salt)
+                self.profile_keys[obj.encryption_profile] = key
+            else:
+                key = self._get_or_prompt_key(obj.encryption_profile, key_source, salt)
             ciphertext, nonce = encrypt_memory(key, obj.content_plaintext)
 
         obj.content_hash = hashlib.sha256(obj.content_plaintext).hexdigest()
@@ -223,14 +264,22 @@ class MemoryVault:
         conn.commit()
         conn.close()
         print(f"Stored memory {obj.memory_id} | Level {obj.classification} | Profile: {obj.encryption_profile}")
+        return obj.memory_id
 
-    def recall_memory(self, memory_id: str, justification: str = "", requester: str = "agent") -> bytes:
+    def recall_memory(
+        self,
+        memory_id: str,
+        justification: str = "",
+        requester: str = "agent",
+        passphrase: str = None,
+        skip_boundary_check: bool = False
+    ) -> bytes:
         # Check lockdown status first
         is_locked, since, reason = self.is_locked_down()
         if is_locked:
             raise PermissionError(f"Vault is in LOCKDOWN since {since}: {reason}")
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute('SELECT * FROM memories WHERE memory_id = ?', (memory_id,))
         row = c.fetchone()
@@ -255,13 +304,14 @@ class MemoryVault:
         sealed_blob = row_dict["sealed_blob"]
         access_policy = json.loads(row_dict["access_policy"] or '{"cooldown_seconds": 0}')
 
-        # 1. Boundary check
-        permitted, reason = check_recall(classification)
-        if not permitted:
-            self._log_recall(c, memory_id, requester, False, justification + f" | boundary: {reason}")
-            conn.commit()
-            conn.close()
-            raise PermissionError(f"Boundary check failed: {reason}")
+        # 1. Boundary check (skip if requested, e.g., for testing)
+        if not skip_boundary_check:
+            permitted, reason = check_recall(classification)
+            if not permitted:
+                self._log_recall(c, memory_id, requester, False, justification + f" | boundary: {reason}")
+                conn.commit()
+                conn.close()
+                raise PermissionError(f"Boundary check failed: {reason}")
 
         # 2. Human approval
         if classification >= 3:
@@ -286,7 +336,10 @@ class MemoryVault:
 
         # 4. Physical token (Level 5 only)
         if classification == 5:
-            from .physical_token import require_physical_token
+            try:
+                from .physical_token import require_physical_token
+            except ImportError:
+                from physical_token import require_physical_token
             print(f"\n[Level 5] Physical security token required for recall.")
             if not require_physical_token(justification):
                 self._log_recall(c, memory_id, requester, False, justification + " | token absent")
@@ -308,6 +361,9 @@ class MemoryVault:
                 if not sealed_blob:
                     raise PermissionError("TPM sealed key missing")
                 key = tpm_unseal_key(sealed_blob)
+            elif passphrase and key_source == "HumanPassphrase":
+                key, _ = derive_key_from_passphrase(passphrase, salt)
+                self.profile_keys[encryption_profile] = key
             else:
                 key = self._get_or_prompt_key(encryption_profile, key_source, salt)
         except Exception as e:
@@ -403,7 +459,7 @@ class MemoryVault:
         # Derive encryption key from passphrase
         key, salt = derive_key_from_passphrase(passphrase)
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         # Determine backup type
@@ -561,7 +617,7 @@ class MemoryVault:
             print("Restore cancelled")
             return
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         # Restore encryption profiles
@@ -630,7 +686,7 @@ class MemoryVault:
         """
         from .merkle import rebuild_merkle_tree, verify_proof
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
 
         print("=== Memory Vault Integrity Verification ===\n")
 
@@ -773,7 +829,7 @@ class MemoryVault:
         """
         cutoff = (datetime.utcnow() - timedelta(hours=max_age_hours)).isoformat()
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         # Get count before delete
@@ -799,7 +855,7 @@ class MemoryVault:
 
     def get_ephemeral_count(self) -> dict:
         """Get count and age statistics for ephemeral memories."""
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         c.execute("SELECT COUNT(*) FROM memories WHERE classification = 0")
@@ -825,7 +881,7 @@ class MemoryVault:
         Returns:
             tuple: (is_locked: bool, since: str or None, reason: str or None)
         """
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("SELECT lockdown, lockdown_since, lockdown_reason FROM vault_state WHERE id = 1")
         row = c.fetchone()
@@ -846,7 +902,10 @@ class MemoryVault:
         Returns:
             bool: True if lockdown was activated
         """
-        from .physical_token import require_physical_token
+        try:
+            from .physical_token import require_physical_token
+        except ImportError:
+            from physical_token import require_physical_token
 
         print("\n" + "="*50)
         print("⚠️  VAULT LOCKDOWN REQUESTED")
@@ -866,7 +925,7 @@ class MemoryVault:
 
         timestamp = datetime.utcnow().isoformat() + "Z"
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("""
             UPDATE vault_state SET
@@ -896,7 +955,10 @@ class MemoryVault:
         Returns:
             bool: True if lockdown was deactivated
         """
-        from .physical_token import require_physical_token
+        try:
+            from .physical_token import require_physical_token
+        except ImportError:
+            from physical_token import require_physical_token
 
         is_locked, since, reason = self.is_locked_down()
         if not is_locked:
@@ -919,7 +981,7 @@ class MemoryVault:
 
         # Verify passphrase against default profile
         try:
-            conn = sqlite3.connect(DB_PATH)
+            conn = sqlite3.connect(self.db_path)
             c = conn.cursor()
             c.execute("SELECT profile_id FROM encryption_profiles WHERE key_source = 'HumanPassphrase' LIMIT 1")
             row = c.fetchone()
@@ -939,7 +1001,7 @@ class MemoryVault:
             print("Unlock aborted")
             return False
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("""
             UPDATE vault_state SET
@@ -956,6 +1018,57 @@ class MemoryVault:
         print("   All operations restored")
         print("="*50 + "\n")
 
+        return True
+
+    def enable_lockdown(self, reason: str) -> bool:
+        """
+        Simple lockdown enable (no physical token required).
+        Use for testing or non-interactive scenarios.
+
+        Args:
+            reason: Reason for entering lockdown
+
+        Returns:
+            bool: True if lockdown was activated
+        """
+        timestamp = datetime.utcnow().isoformat() + "Z"
+
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("""
+            UPDATE vault_state SET
+                lockdown = 1,
+                lockdown_since = ?,
+                lockdown_reason = ?
+            WHERE id = 1
+        """, (timestamp, reason))
+        conn.commit()
+        conn.close()
+
+        print(f"🔒 VAULT LOCKDOWN ENABLED: {reason}")
+        return True
+
+    def disable_lockdown(self) -> bool:
+        """
+        Simple lockdown disable (no physical token required).
+        Use for testing or non-interactive scenarios.
+
+        Returns:
+            bool: True if lockdown was deactivated
+        """
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("""
+            UPDATE vault_state SET
+                lockdown = 0,
+                lockdown_since = NULL,
+                lockdown_reason = NULL
+            WHERE id = 1
+        """)
+        conn.commit()
+        conn.close()
+
+        print("🔓 VAULT LOCKDOWN DISABLED")
         return True
 
     # ==================== Key Rotation ====================
@@ -975,12 +1088,15 @@ class MemoryVault:
         Returns:
             bool: True if rotation was successful
         """
-        from .physical_token import require_physical_token
+        try:
+            from .physical_token import require_physical_token
+        except ImportError:
+            from physical_token import require_physical_token
 
         # Security: Validate profile_id to prevent path traversal
         validate_profile_id(profile_id)
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         # Get profile info
@@ -1170,9 +1286,12 @@ class MemoryVault:
         Returns:
             bool: True if tombstoned successfully
         """
-        from .physical_token import require_physical_token
+        try:
+            from .physical_token import require_physical_token
+        except ImportError:
+            from physical_token import require_physical_token
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         c.execute("""
@@ -1242,7 +1361,7 @@ class MemoryVault:
         Returns:
             List of tombstoned memory summaries
         """
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         c.execute("""
@@ -1272,7 +1391,7 @@ class MemoryVault:
         Returns:
             tuple: (is_tombstoned, tombstoned_at, reason)
         """
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         c.execute("""
@@ -1306,7 +1425,7 @@ class MemoryVault:
         if not NATLANGCHAIN_AVAILABLE:
             raise RuntimeError("NatLangChain integration not available")
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         c.execute("""
@@ -1377,7 +1496,7 @@ class MemoryVault:
         Returns:
             List of related chain entries
         """
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         c.execute("""
@@ -1425,7 +1544,7 @@ class MemoryVault:
             # Fallback to basic boundary check
             return True, "Agent-OS not available, using basic boundary check"
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         c.execute("SELECT classification FROM memories WHERE memory_id = ?", (memory_id,))
@@ -1494,7 +1613,7 @@ class MemoryVault:
         Returns:
             True if successful
         """
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         c.execute("SELECT 1 FROM memories WHERE memory_id = ?", (memory_id,))
@@ -1528,7 +1647,7 @@ class MemoryVault:
         Returns:
             List of effort receipt summaries
         """
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
 
         c.execute("""
