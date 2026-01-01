@@ -36,3 +36,15 @@ htmlcov/
 .tox/
 coverage.xml
 *.cover
+
+# Security scan reports
+bandit-report.json
+
+# Backup files
+*.bak
+*.backup
+
+# Local development
+.env
+.env.local
+*.local

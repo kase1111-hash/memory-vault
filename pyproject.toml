@@ -57,10 +57,13 @@ all = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+    "pip-audit>=2.6.0",
+    "pre-commit>=3.5.0",
 ]
 
 [project.scripts]
-memory-vault = "memory_vault.cli:main"
+memory-vault = "cli:main"
 
 [project.urls]
 Homepage = "https://github.com/kase1111-hash/memory-vault"
@@ -68,16 +71,9 @@ Documentation = "https://github.com/kase1111-hash/memory-vault#readme"
 Repository = "https://github.com/kase1111-hash/memory-vault.git"
 Issues = "https://github.com/kase1111-hash/memory-vault/issues"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["memory_vault*"]
-
 [tool.setuptools]
-py-modules = []
-packages = ["memory_vault"]
-
-[tool.setuptools.package-dir]
-memory_vault = "."
+py-modules = ["vault", "crypto", "db", "models", "merkle", "cli", "boundry", "agent_os", "physical_token", "deadman", "intentlog", "natlangchain", "effort", "escrow", "zkproofs"]
+packages = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -86,8 +82,8 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 
 [tool.coverage.run]
-source = ["memory_vault"]
-omit = ["tests/*", "*/__pycache__/*"]
+source = ["."]
+omit = ["tests/*", "*/__pycache__/*", "setup.py", "conftest.py"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -95,3 +91,34 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "raise NotImplementedError",
 ]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 120
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "B",      # flake8-bugbear
+    "S",      # flake8-bandit (security)
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "S101",   # assert usage (needed for tests)
+    "S311",   # pseudo-random (acceptable for non-crypto uses)
+    "B008",   # function call in default argument
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106"]  # Allow asserts and hardcoded passwords in tests
