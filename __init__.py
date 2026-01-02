@@ -13,7 +13,7 @@ Integrations:
 - boundary-daemon: Connection protection and operational mode enforcement
 """
 
-__version__ = "1.2.0"
+__version__ = "0.1.0-alpha"
 __author__ = "kase1111-hash"
 
 # Support both package import (pip install) and direct module import
