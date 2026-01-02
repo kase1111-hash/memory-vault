@@ -5,7 +5,63 @@ All notable changes to Memory Vault are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.1.0] - 2026-01-01
+## [0.1.0-alpha] - 2026-01-01
+
+**First public alpha release.** This release consolidates all core functionality
+with production-grade error handling and security integrations.
+
+### Added
+- **Error Handling Framework** (`errors.py`)
+  - 30+ structured exception types with SIEM-compatible event conversion
+  - 10-level severity scale (DEBUG to BREACH_DETECTED)
+  - Full actor/target tracking for security auditing
+  - Automatic traceback capture for debugging
+
+- **SIEM Integration** (`siem_reporter.py`)
+  - Boundary-SIEM HTTP/JSON API support (`POST /v1/events`)
+  - CEF protocol support (UDP/TCP) for traditional SIEM systems
+  - Async event reporting with background worker thread
+  - Event batching and automatic retry with exponential backoff
+  - Environment-based configuration
+
+- **Enhanced Boundary Daemon** (`boundry.py`)
+  - `BoundaryClient` class with full protocol support
+  - Connection protection requests
+  - Vault registration with boundary-daemon
+  - Operational mode querying (ONLINE/OFFLINE/AIRGAP/COLDROOM)
+  - Status caching for performance
+
+- **Production Readiness**
+  - Comprehensive security documentation (SECURITY.md)
+  - Contribution guidelines (CONTRIBUTING.md)
+  - Pre-commit hooks for code quality
+  - GitHub Actions CI with security scanning
+
+### Changed
+- `MemoryVault` now initializes SIEM reporter and boundary client
+- `recall_memory()` uses structured exceptions and reports to SIEM
+- Updated `pyproject.toml` with new modules
+
+### Fixed
+- TOML parsing error in pyproject.toml
+- Test isolation issues with db_path parameter
+- Relative import issues for standalone usage
+
+### Known Issues
+- TPM sealing untested on real hardware
+- FIDO2 full credential lifecycle incomplete
+- Some pre-existing test mismatches (merkle.py, models.py)
+
+## [Unreleased]
+
+Previous development versions (1.0.0, 1.1.0) have been consolidated into this
+alpha release. See below for historical context.
+
+---
+
+## Historical Development (Pre-Alpha)
+
+## [1.1.0] - 2025-12-31
 
 ### Added
 - `pyproject.toml` for standard Python packaging (`pip install .`)

@@ -4,7 +4,15 @@
 
 Memory Vault is a cryptographically enforced storage system designed for AI agent ecosystems, providing classification-bound access control, tamper-evident auditing, hardware-bound secrets, and human-in-the-loop controls.
 
-**Version:** 1.1.0 | **Status:** Production (Feature Complete)
+[![Tests](https://github.com/kase1111-hash/memory-vault/actions/workflows/test.yml/badge.svg)](https://github.com/kase1111-hash/memory-vault/actions/workflows/test.yml)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
+**Version:** 0.1.0-alpha | **Status:** Alpha (Feature Complete, Seeking Feedback)
+
+> ⚠️ **Alpha Release**: This is the first public release. Core functionality is stable and tested,
+> but some features (TPM hardware sealing, FIDO2 credential lifecycle) require additional validation.
+> API may change based on community feedback.
 
 ## Features
 
@@ -47,14 +55,24 @@ Memory Vault is a cryptographically enforced storage system designed for AI agen
 git clone https://github.com/kase1111-hash/memory-vault.git
 cd memory-vault
 
-# Install core dependencies
-pip install -r requirements.txt
+# Install with pip (recommended)
+pip install .
 
-# Optional: Install TPM support (Linux with TPM 2.0)
-pip install tpm2-pytss
+# Or install with development dependencies
+pip install -e ".[dev]"
 
-# Optional: Install physical token support
-pip install fido2 pyotp
+# Optional: Install with all extras (TPM, tokens)
+pip install -e ".[all]"
+```
+
+### Optional Dependencies
+
+```bash
+# TPM 2.0 support (Linux only)
+pip install ".[tpm]"
+
+# Physical token support (FIDO2, TOTP)
+pip install ".[tokens]"
 ```
 
 ## Quick Start
@@ -353,14 +371,16 @@ python -m memory_vault.cli governance-check <agent_id> <action> <memory_id>
 
 ```
 memory_vault/
-├── __init__.py         - Package initialization
-├── vault.py            - Core MemoryVault API (~1,400 lines)
+├── __init__.py         - Package initialization & exports
+├── vault.py            - Core MemoryVault API (~1,700 lines)
 ├── db.py               - SQLite schema, migrations, FTS5, indexes
 ├── crypto.py           - AES-256-GCM, Argon2id, Ed25519, TPM sealing
 ├── merkle.py           - Merkle tree construction & verification
 ├── models.py           - Dataclasses (MemoryObject, etc.)
+├── errors.py           - Exception hierarchy with SIEM integration
+├── siem_reporter.py    - Boundary-SIEM event reporting
 ├── cli.py              - Command-line interface (~40 subcommands)
-├── boundry.py          - Boundary daemon Unix socket client
+├── boundry.py          - Boundary daemon client & connection protection
 ├── physical_token.py   - FIDO2, HMAC, TOTP token authentication
 ├── deadman.py          - Dead-man switch & heir management
 ├── intentlog.py        - IntentLog bidirectional linking adapter
@@ -369,6 +389,52 @@ memory_vault/
 ├── natlangchain.py     - NatLangChain blockchain anchoring
 ├── effort.py           - MP-02 Proof-of-Effort receipts
 └── agent_os.py         - Agent-OS governance integration
+```
+
+## Security Integrations
+
+### SIEM Reporting
+
+Memory Vault can report security events to Boundary-SIEM:
+
+```python
+from memory_vault import MemoryVault, SIEMConfig
+
+# Configure SIEM (or use environment variables)
+config = SIEMConfig(
+    endpoint="http://siem.example.com/v1/events",
+    api_key="your-api-key",
+    enabled=True
+)
+
+vault = MemoryVault(siem_config=config)
+```
+
+Environment variables:
+- `SIEM_ENDPOINT` - SIEM API endpoint
+- `SIEM_API_KEY` - API authentication key
+- `SIEM_ENABLED` - Enable/disable reporting (default: true)
+
+### Boundary Daemon
+
+The boundary daemon enforces operational mode restrictions:
+
+```python
+from memory_vault import BoundaryClient, OperationalMode
+
+client = BoundaryClient()
+
+# Check current mode
+status = client.get_status()
+if status.operational_mode == OperationalMode.AIRGAP:
+    print("Running in airgap mode - network disabled")
+
+# Request connection protection
+granted, token = client.request_connection_protection(
+    connection_type="database",
+    target="/path/to/vault.db",
+    duration_seconds=300
+)
 ```
 
 ## Security

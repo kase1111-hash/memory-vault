@@ -1,12 +1,36 @@
 # Production Readiness Assessment
 
 **Date:** 2026-01-01
-**Version:** 1.2.0
-**Status:** Production Ready (with caveats)
+**Version:** 0.1.0-alpha
+**Status:** Alpha Release
 
 ## Executive Summary
 
-Memory Vault is a mature, well-documented cryptographic storage system for AI agent ecosystems. The core functionality is production-ready, with comprehensive security measures and audit capabilities. This assessment identifies improvements made and remaining items for consideration.
+Memory Vault is a cryptographic storage system for AI agent ecosystems. This is the **first public alpha release** (v0.1.0-alpha), consolidating core functionality with production-grade error handling and security integrations.
+
+### Alpha Release Scope
+
+**Ready for Testing:**
+- Core encryption/decryption operations
+- 6-level classification system
+- Merkle audit trail with signed roots
+- Backup/restore functionality
+- SIEM integration for security monitoring
+- Boundary daemon connection protection
+
+**Requires Additional Validation:**
+- TPM hardware sealing (code complete, needs hardware testing)
+- FIDO2 full credential lifecycle
+- High-load performance testing
+- Long-term data integrity verification
+
+### Feedback Requested
+
+This alpha release seeks community feedback on:
+1. API design and usability
+2. Error handling and exception hierarchy
+3. SIEM event format and content
+4. Documentation clarity
 
 ## Improvements Made in This Review
 
