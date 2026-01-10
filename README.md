@@ -1,8 +1,8 @@
 # Memory Vault
 
-**Secure, owner-sovereign, offline-first storage for high-value cognitive artifacts.**
+**Sovereign AI memory storage for cognitive artifacts — own your AI's memory with offline-capable, encrypted cognitive storage.**
 
-Memory Vault is a cryptographically enforced storage system designed for AI agent ecosystems, providing classification-bound access control, tamper-evident auditing, hardware-bound secrets, and human-in-the-loop controls.
+Memory Vault is an **AI memory vault** and **private AI knowledge base** designed for AI agent ecosystems. It provides **owner-controlled AI storage** with classification-bound access control, tamper-evident auditing, hardware-bound secrets, and human-in-the-loop controls. Built for **digital sovereignty**, Memory Vault ensures your AI's memories remain private, self-hosted, and under your complete control.
 
 [![Tests](https://github.com/kase1111-hash/memory-vault/actions/workflows/test.yml/badge.svg)](https://github.com/kase1111-hash/memory-vault/actions/workflows/test.yml)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -13,6 +13,14 @@ Memory Vault is a cryptographically enforced storage system designed for AI agen
 > ⚠️ **Alpha Release**: This is the first public release. Core functionality is stable and tested,
 > but some features (TPM hardware sealing, FIDO2 credential lifecycle) require additional validation.
 > API may change based on community feedback.
+
+## What Problem Does This Solve?
+
+- **How do I own my AI's memory?** Memory Vault gives you complete AI memory ownership with self-hosted infrastructure that never phones home.
+- **Where can I store private AI knowledge?** A personal AI knowledge vault with military-grade encryption that works completely offline.
+- **How do I keep my AI's data sovereign?** Sovereign data for AI agents — no cloud dependencies, no third-party access, full data ownership.
+- **Can AI memory be self-hosted?** Yes. Memory Vault is designed as self-hosted AI memory that runs on your own hardware, from Raspberry Pi to enterprise servers.
+- **How do I protect sensitive cognitive artifacts?** Private agent memory with 6-level classification, hardware-bound encryption, and human approval gates.
 
 ## Features
 
@@ -478,6 +486,39 @@ Built with principles from Agent-OS: Human sovereignty, explicit consent, refusa
 
 ---
 
+## Part of the Agent-OS Ecosystem
+
+Memory Vault is a core component of the **Agent-OS** ecosystem for natural language native AI agent infrastructure. These connected repositories work together to enable owned AI infrastructure with human-AI collaboration at its core.
+
+### Agent-OS Core
+
+| Repository | Description |
+|------------|-------------|
+| [Agent-OS](https://github.com/kase1111-hash/Agent-OS) | Natural language native operating system for AI agents — the coordination layer for multi-agent systems |
+| [synth-mind](https://github.com/kase1111-hash/synth-mind) | Psychological AI architecture with six interconnected modules for emergent continuity and empathy |
+| [boundary-daemon-](https://github.com/kase1111-hash/boundary-daemon-) | Trust enforcement layer defining cognition boundaries — controls where AI can think |
+| [value-ledger](https://github.com/kase1111-hash/value-ledger) | Economic accounting layer for cognitive work — tracks value of ideas, effort, and novelty |
+| [learning-contracts](https://github.com/kase1111-hash/learning-contracts) | Safety protocols for AI learning and data governance — controls what AI can learn |
+
+### NatLangChain Ecosystem
+
+| Repository | Description |
+|------------|-------------|
+| [NatLangChain](https://github.com/kase1111-hash/NatLangChain) | Prose-first, intent-native blockchain protocol for recording human intent in natural language |
+| [IntentLog](https://github.com/kase1111-hash/IntentLog) | Git for human reasoning — version control for tracking "why" changes happen via prose commits |
+| [Finite-Intent-Executor](https://github.com/kase1111-hash/Finite-Intent-Executor) | Posthumous execution of predefined intent via Solidity smart contracts |
+| [mediator-node](https://github.com/kase1111-hash/mediator-node) | LLM mediation layer for matching, negotiation, and closure proposals |
+| [ILR-module](https://github.com/kase1111-hash/ILR-module) | IP & Licensing Reconciliation — dispute resolution for intellectual property conflicts |
+| [RRA-Module](https://github.com/kase1111-hash/RRA-Module) | Revenant Repo Agent — converts abandoned repositories into autonomous licensing agents |
+
+### Security Infrastructure
+
+| Repository | Description |
+|------------|-------------|
+| [Boundary-SIEM](https://github.com/kase1111-hash/Boundary-SIEM) | Security Information and Event Management for AI agent systems |
+
+---
+
 **Memory as capital, not cache.**
 
-The vault enforces restraint. A system that remembers everything becomes dangerous. The Memory Vault exists to prevent that.
+The vault enforces restraint. A system that remembers everything becomes dangerous. The Memory Vault exists to prevent that — ensuring cognitive artifact storage remains sovereign, private, and under human control.
