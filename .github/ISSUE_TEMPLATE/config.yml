@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security Vulnerabilities
+    url: https://github.com/kase1111-hash/memory-vault/blob/main/SECURITY.md
+    about: Please report security vulnerabilities following our responsible disclosure process
+  - name: Questions & Discussions
+    url: https://github.com/kase1111-hash/memory-vault/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: Support
+    url: https://github.com/kase1111-hash/memory-vault/blob/main/SUPPORT.md
+    about: Get help and support resources
