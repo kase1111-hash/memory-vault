@@ -5,7 +5,11 @@ import hmac
 import hashlib
 import struct
 import time
+import logging
+import warnings
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Conditional imports for hardware token support
 try:
@@ -143,18 +147,32 @@ def _hmac_challenge_response() -> bool:
         print("Touch your YubiKey when ready...")
         time.sleep(1)  # Give user time to prepare
 
-        # In a full implementation, you'd use ykman or direct HID communication
-        # For now, we verify the challenge can be computed
-        # This is a simplified version - a real implementation would:
+        # SECURITY WARNING: HMAC challenge-response is NOT fully implemented.
+        # This currently only verifies that a secret file exists, not that an
+        # actual hardware token responded. For production use, implement proper
+        # YubiKey HID communication using ykman or direct HID protocol.
+        #
+        # A real implementation would:
         # 1. Send challenge to YubiKey via HID
         # 2. Read response from YubiKey
         # 3. Compare with expected
-
-        # Simplified: if secret exists and is valid, consider it authenticated
-        # TODO: Implement actual YubiKey HID communication
+        #
+        # Until this is implemented, HMAC mode provides REDUCED security.
+        # Consider using FIDO2 or TOTP instead for Level 5 memories.
+        warnings.warn(
+            "HMAC challenge-response is not fully implemented. "
+            "Secret file presence check only - no actual hardware verification. "
+            "Use FIDO2 or TOTP for proper Level 5 security.",
+            UserWarning
+        )
+        logger.warning(
+            "HMAC authentication used without hardware verification - "
+            "secret file presence check only"
+        )
         return True
 
-    except Exception as e:
+    except (IOError, OSError) as e:
+        logger.debug(f"HMAC challenge failed: {e}")
         return False
 
 
@@ -272,7 +290,8 @@ def check_token_availability() -> dict:
         try:
             devices = list(CtapHidDevice.list_devices())
             status["fido2"]["devices"] = len(devices)
-        except:
+        except Exception:
+            # FIDO2 device enumeration failed, leave devices count at 0
             pass
 
     return status

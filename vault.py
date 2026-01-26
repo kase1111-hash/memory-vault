@@ -202,8 +202,8 @@ class MemoryVault:
 
     @property
     def conn(self):
-        """Get a database connection."""
-        return sqlite3.connect(self.db_path)
+        """Get the existing database connection."""
+        return self._conn
 
     def close(self):
         """Close the vault and cleanup resources."""
@@ -253,27 +253,28 @@ class MemoryVault:
             raise ValueError(f"Unsupported or unavailable key_source: {key_source}")
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('SELECT 1 FROM encryption_profiles WHERE profile_id = ?', (profile_id,))
-        if c.fetchone():
+        try:
+            c = conn.cursor()
+            c.execute('SELECT 1 FROM encryption_profiles WHERE profile_id = ?', (profile_id,))
+            if c.fetchone():
+                raise ValueError(f"Profile '{profile_id}' already exists")
+
+            if key_source == "KeyFile" and generate_keyfile:
+                try:
+                    from .crypto import generate_keyfile as make_keyfile
+                except ImportError:
+                    from crypto import generate_keyfile as make_keyfile
+                keyfile_path = make_keyfile(profile_id)
+                print(f"Generated keyfile: {keyfile_path}")
+
+            c.execute('''
+                INSERT INTO encryption_profiles
+                (profile_id, cipher, key_source, rotation_policy, exportable)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (profile_id, cipher, key_source, rotation_policy, int(exportable)))
+            conn.commit()
+        finally:
             conn.close()
-            raise ValueError(f"Profile '{profile_id}' already exists")
-
-        if key_source == "KeyFile" and generate_keyfile:
-            try:
-                from .crypto import generate_keyfile as make_keyfile
-            except ImportError:
-                from crypto import generate_keyfile as make_keyfile
-            keyfile_path = make_keyfile(profile_id)
-            print(f"Generated keyfile: {keyfile_path}")
-
-        c.execute('''
-            INSERT INTO encryption_profiles
-            (profile_id, cipher, key_source, rotation_policy, exportable)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (profile_id, cipher, key_source, rotation_policy, int(exportable)))
-        conn.commit()
-        conn.close()
 
         # If passphrase provided, cache the derived key for later use
         if passphrase and key_source == "HumanPassphrase":
@@ -285,15 +286,17 @@ class MemoryVault:
 
     def list_profiles(self) -> list[dict]:
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('SELECT profile_id, cipher, key_source, rotation_policy, exportable FROM encryption_profiles')
-        rows = c.fetchall()
-        conn.close()
-        return [
-            {"profile_id": r[0], "cipher": r[1], "key_source": r[2],
-             "rotation_policy": r[3], "exportable": bool(r[4])}
-            for r in rows
-        ]
+        try:
+            c = conn.cursor()
+            c.execute('SELECT profile_id, cipher, key_source, rotation_policy, exportable FROM encryption_profiles')
+            rows = c.fetchall()
+            return [
+                {"profile_id": r[0], "cipher": r[1], "key_source": r[2],
+                 "rotation_policy": r[3], "exportable": bool(r[4])}
+                for r in rows
+            ]
+        finally:
+            conn.close()
 
     # ==================== Key Handling ====================
 
@@ -330,63 +333,64 @@ class MemoryVault:
             raise ValueError("Classification must be 0-5")
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('SELECT key_source FROM encryption_profiles WHERE profile_id = ?', (obj.encryption_profile,))
-        row = c.fetchone()
-        if not row:
-            conn.close()
-            raise ValueError(f"Profile '{obj.encryption_profile}' not found")
-        key_source = row[0]
+        try:
+            c = conn.cursor()
+            c.execute('SELECT key_source FROM encryption_profiles WHERE profile_id = ?', (obj.encryption_profile,))
+            row = c.fetchone()
+            if not row:
+                raise ValueError(f"Profile '{obj.encryption_profile}' not found")
+            key_source = row[0]
 
-        salt = nacl_random(16) if key_source == "HumanPassphrase" else None
-        sealed_blob = None
-        ciphertext = None
-        nonce = None
+            salt = nacl_random(16) if key_source == "HumanPassphrase" else None
+            sealed_blob = None
+            ciphertext = None
+            nonce = None
 
-        if key_source == "TPM":
-            try:
-                from .crypto import tpm_create_and_persist_primary, tpm_generate_sealed_key
-            except ImportError:
-                from crypto import tpm_create_and_persist_primary, tpm_generate_sealed_key
-            tpm_create_and_persist_primary()
-            ephemeral_key = nacl_random(32)
-            ciphertext, nonce = encrypt_memory(ephemeral_key, obj.content_plaintext)
-            sealed_blob = tpm_generate_sealed_key()  # Seals ephemeral_key
-        else:
-            # If passphrase provided, derive and cache the key
-            if passphrase and key_source == "HumanPassphrase":
-                key, _ = derive_key_from_passphrase(passphrase, salt)
-                self.profile_keys[obj.encryption_profile] = key
+            if key_source == "TPM":
+                try:
+                    from .crypto import tpm_create_and_persist_primary, tpm_generate_sealed_key
+                except ImportError:
+                    from crypto import tpm_create_and_persist_primary, tpm_generate_sealed_key
+                tpm_create_and_persist_primary()
+                ephemeral_key = nacl_random(32)
+                ciphertext, nonce = encrypt_memory(ephemeral_key, obj.content_plaintext)
+                sealed_blob = tpm_generate_sealed_key()  # Seals ephemeral_key
             else:
-                key = self._get_or_prompt_key(obj.encryption_profile, key_source, salt)
-            ciphertext, nonce = encrypt_memory(key, obj.content_plaintext)
+                # If passphrase provided, derive and cache the key
+                if passphrase and key_source == "HumanPassphrase":
+                    key, _ = derive_key_from_passphrase(passphrase, salt)
+                    self.profile_keys[obj.encryption_profile] = key
+                else:
+                    key = self._get_or_prompt_key(obj.encryption_profile, key_source, salt)
+                ciphertext, nonce = encrypt_memory(key, obj.content_plaintext)
 
-        obj.content_hash = hashlib.sha256(obj.content_plaintext).hexdigest()
+            obj.content_hash = hashlib.sha256(obj.content_plaintext).hexdigest()
 
-        c.execute('''
-            INSERT INTO memories (
-                memory_id, created_at, created_by, classification, encryption_profile,
-                content_hash, ciphertext, nonce, salt, intent_ref, value_metadata,
-                access_policy, audit_proof, sealed_blob
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            obj.memory_id,
-            obj.created_at.isoformat(),
-            obj.created_by,
-            obj.classification,
-            obj.encryption_profile,
-            obj.content_hash,
-            ciphertext,
-            nonce,
-            salt,
-            obj.intent_ref,
-            json.dumps(obj.value_metadata),
-            json.dumps(obj.access_policy),
-            obj.audit_proof,
-            sealed_blob
-        ))
-        conn.commit()
-        conn.close()
+            c.execute('''
+                INSERT INTO memories (
+                    memory_id, created_at, created_by, classification, encryption_profile,
+                    content_hash, ciphertext, nonce, salt, intent_ref, value_metadata,
+                    access_policy, audit_proof, sealed_blob
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                obj.memory_id,
+                obj.created_at.isoformat(),
+                obj.created_by,
+                obj.classification,
+                obj.encryption_profile,
+                obj.content_hash,
+                ciphertext,
+                nonce,
+                salt,
+                obj.intent_ref,
+                json.dumps(obj.value_metadata),
+                json.dumps(obj.access_policy),
+                obj.audit_proof,
+                sealed_blob
+            ))
+            conn.commit()
+        finally:
+            conn.close()
         print(f"Stored memory {obj.memory_id} | Level {obj.classification} | Profile: {obj.encryption_profile}")
         return obj.memory_id
 
@@ -436,167 +440,161 @@ class MemoryVault:
             raise exc
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute('SELECT * FROM memories WHERE memory_id = ?', (memory_id,))
-        row = c.fetchone()
-        if not row:
-            conn.close()
-            exc = MemoryNotFoundError(
-                f"Memory '{memory_id}' not found",
-                actor=actor_info,
-                metadata={"memory_id": memory_id}
-            )
-            self._report_exception(exc)
-            raise exc
-
-        # Capture column names immediately after query
-        columns = [d[0] for d in c.description]
-        row_dict = dict(zip(columns, row))
-
-        # Check if memory is tombstoned
-        if row_dict.get("tombstoned"):
-            conn.close()
-            exc = TombstoneError(
-                f"Memory is TOMBSTONED: {row_dict.get('tombstone_reason') or 'No reason provided'}",
-                actor=actor_info,
-                metadata={
-                    "memory_id": memory_id,
-                    "tombstone_reason": row_dict.get("tombstone_reason")
-                }
-            )
-            self._report_exception(exc)
-            raise exc
-
-        classification = row_dict["classification"]
-        encryption_profile = row_dict["encryption_profile"]
-        ciphertext = row_dict["ciphertext"]
-        nonce = row_dict["nonce"]
-        salt = row_dict["salt"]
-        sealed_blob = row_dict["sealed_blob"]
-        access_policy = json.loads(row_dict["access_policy"] or '{"cooldown_seconds": 0}')
-
-        # 1. Boundary check (skip if requested, e.g., for testing)
-        if not skip_boundary_check:
-            permitted, boundary_reason = check_recall(classification)
-            if not permitted:
-                self._log_recall(c, memory_id, requester, False, justification + f" | boundary: {boundary_reason}")
-                conn.commit()
-                conn.close()
-                exc = BoundaryDeniedError(
-                    f"Boundary check failed: {boundary_reason}",
-                    reason=boundary_reason,
-                    actor=actor_info,
-                    metadata={"memory_id": memory_id, "classification": classification}
-                )
-                self._report_exception(exc)
-                raise exc
-
-        # 2. Human approval
-        if classification >= 3:
-            print(f"[Level {classification}] Human approval required.")
-            approve = input("Approve recall? (yes/no): ").strip().lower()
-            if approve != "yes":
-                self._log_recall(c, memory_id, requester, False, justification + " | human denied")
-                conn.commit()
-                conn.close()
-                exc = ApprovalRequiredError(
-                    "Recall denied by human",
-                    actor=actor_info,
-                    metadata={"memory_id": memory_id, "classification": classification}
-                )
-                self._report_exception(exc)
-                raise exc
-
-        # 3. Cooldown
-        cooldown = access_policy.get("cooldown_seconds", 0)
-        if cooldown > 0:
-            last_time = self._get_last_successful_recall_time(c, memory_id)
-            if last_time and (datetime.utcnow() - last_time) < timedelta(seconds=cooldown):
-                remaining = int(cooldown - (datetime.utcnow() - last_time).total_seconds())
-                self._log_recall(c, memory_id, requester, False, f"cooldown: {remaining}s")
-                conn.commit()
-                conn.close()
-                exc = CooldownError(
-                    f"Cooldown active — {remaining}s remaining",
-                    remaining_seconds=remaining,
-                    actor=actor_info,
-                    metadata={"memory_id": memory_id, "cooldown_seconds": cooldown}
-                )
-                self._report_exception(exc)
-                raise exc
-
-        # 4. Physical token (Level 5 only)
-        if classification == 5:
-            try:
-                from .physical_token import require_physical_token
-            except ImportError:
-                from physical_token import require_physical_token
-            print(f"\n[Level 5] Physical security token required for recall.")
-            if not require_physical_token(justification):
-                self._log_recall(c, memory_id, requester, False, justification + " | token absent")
-                conn.commit()
-                conn.close()
-                exc = PhysicalTokenError(
-                    "Physical token required but not presented",
-                    actor=actor_info,
-                    metadata={"memory_id": memory_id, "classification": classification}
-                )
-                self._report_exception(exc)
-                raise exc
-            print("✓ Physical token confirmed\n")
-
-        # 5. Key & decrypt
-        c.execute('SELECT key_source FROM encryption_profiles WHERE profile_id = ?', (encryption_profile,))
-        key_source = c.fetchone()[0]
-
         try:
-            if key_source == "TPM":
+            c = conn.cursor()
+            c.execute('SELECT * FROM memories WHERE memory_id = ?', (memory_id,))
+            row = c.fetchone()
+            if not row:
+                exc = MemoryNotFoundError(
+                    f"Memory '{memory_id}' not found",
+                    actor=actor_info,
+                    metadata={"memory_id": memory_id}
+                )
+                self._report_exception(exc)
+                raise exc
+
+            # Capture column names immediately after query
+            columns = [d[0] for d in c.description]
+            row_dict = dict(zip(columns, row))
+
+            # Check if memory is tombstoned
+            if row_dict.get("tombstoned"):
+                exc = TombstoneError(
+                    f"Memory is TOMBSTONED: {row_dict.get('tombstone_reason') or 'No reason provided'}",
+                    actor=actor_info,
+                    metadata={
+                        "memory_id": memory_id,
+                        "tombstone_reason": row_dict.get("tombstone_reason")
+                    }
+                )
+                self._report_exception(exc)
+                raise exc
+
+            classification = row_dict["classification"]
+            encryption_profile = row_dict["encryption_profile"]
+            ciphertext = row_dict["ciphertext"]
+            nonce = row_dict["nonce"]
+            salt = row_dict["salt"]
+            sealed_blob = row_dict["sealed_blob"]
+            access_policy = json.loads(row_dict["access_policy"] or '{"cooldown_seconds": 0}')
+
+            # 1. Boundary check (skip if requested, e.g., for testing)
+            if not skip_boundary_check:
+                permitted, boundary_reason = check_recall(classification)
+                if not permitted:
+                    self._log_recall(c, memory_id, requester, False, justification + f" | boundary: {boundary_reason}")
+                    conn.commit()
+                    exc = BoundaryDeniedError(
+                        f"Boundary check failed: {boundary_reason}",
+                        reason=boundary_reason,
+                        actor=actor_info,
+                        metadata={"memory_id": memory_id, "classification": classification}
+                    )
+                    self._report_exception(exc)
+                    raise exc
+
+            # 2. Human approval
+            if classification >= 3:
+                print(f"[Level {classification}] Human approval required.")
+                approve = input("Approve recall? (yes/no): ").strip().lower()
+                if approve != "yes":
+                    self._log_recall(c, memory_id, requester, False, justification + " | human denied")
+                    conn.commit()
+                    exc = ApprovalRequiredError(
+                        "Recall denied by human",
+                        actor=actor_info,
+                        metadata={"memory_id": memory_id, "classification": classification}
+                    )
+                    self._report_exception(exc)
+                    raise exc
+
+            # 3. Cooldown
+            cooldown = access_policy.get("cooldown_seconds", 0)
+            if cooldown > 0:
+                last_time = self._get_last_successful_recall_time(c, memory_id)
+                if last_time and (datetime.utcnow() - last_time) < timedelta(seconds=cooldown):
+                    remaining = int(cooldown - (datetime.utcnow() - last_time).total_seconds())
+                    self._log_recall(c, memory_id, requester, False, f"cooldown: {remaining}s")
+                    conn.commit()
+                    exc = CooldownError(
+                        f"Cooldown active — {remaining}s remaining",
+                        remaining_seconds=remaining,
+                        actor=actor_info,
+                        metadata={"memory_id": memory_id, "cooldown_seconds": cooldown}
+                    )
+                    self._report_exception(exc)
+                    raise exc
+
+            # 4. Physical token (Level 5 only)
+            if classification == 5:
                 try:
-                    from .crypto import tpm_unseal_key
+                    from .physical_token import require_physical_token
                 except ImportError:
-                    from crypto import tpm_unseal_key
-                if not sealed_blob:
-                    raise ProfileKeyMissingError("TPM sealed key missing")
-                key = tpm_unseal_key(sealed_blob)
-            elif passphrase and key_source == "HumanPassphrase":
-                key, _ = derive_key_from_passphrase(passphrase, salt)
-                self.profile_keys[encryption_profile] = key
-            else:
-                key = self._get_or_prompt_key(encryption_profile, key_source, salt)
-        except MemoryVaultError:
-            raise
-        except Exception as e:
-            self._log_recall(c, memory_id, requester, False, f"key error: {e}")
-            conn.commit()
-            conn.close()
-            exc = ProfileKeyMissingError(
-                f"Key access failed: {e}",
-                actor=actor_info,
-                metadata={"memory_id": memory_id, "profile": encryption_profile},
-                cause=e
-            )
-            self._report_exception(exc)
-            raise exc
+                    from physical_token import require_physical_token
+                print(f"\n[Level 5] Physical security token required for recall.")
+                if not require_physical_token(justification):
+                    self._log_recall(c, memory_id, requester, False, justification + " | token absent")
+                    conn.commit()
+                    exc = PhysicalTokenError(
+                        "Physical token required but not presented",
+                        actor=actor_info,
+                        metadata={"memory_id": memory_id, "classification": classification}
+                    )
+                    self._report_exception(exc)
+                    raise exc
+                print("✓ Physical token confirmed\n")
 
-        try:
-            plaintext = decrypt_memory(key, ciphertext, nonce)
-        except Exception as e:
-            self._log_recall(c, memory_id, requester, False, f"decrypt error: {e}")
-            conn.commit()
-            conn.close()
-            exc = DecryptionError(
-                "Decryption failed - possible tampering or wrong key",
-                actor=actor_info,
-                metadata={"memory_id": memory_id, "profile": encryption_profile},
-                cause=e
-            )
-            self._report_exception(exc)
-            raise exc
+            # 5. Key & decrypt
+            c.execute('SELECT key_source FROM encryption_profiles WHERE profile_id = ?', (encryption_profile,))
+            key_source = c.fetchone()[0]
 
-        # 6. Log success + update Merkle tree
-        self._log_recall(c, memory_id, requester, True, justification)
-        conn.commit()
-        conn.close()
+            try:
+                if key_source == "TPM":
+                    try:
+                        from .crypto import tpm_unseal_key
+                    except ImportError:
+                        from crypto import tpm_unseal_key
+                    if not sealed_blob:
+                        raise ProfileKeyMissingError("TPM sealed key missing")
+                    key = tpm_unseal_key(sealed_blob)
+                elif passphrase and key_source == "HumanPassphrase":
+                    key, _ = derive_key_from_passphrase(passphrase, salt)
+                    self.profile_keys[encryption_profile] = key
+                else:
+                    key = self._get_or_prompt_key(encryption_profile, key_source, salt)
+            except MemoryVaultError:
+                raise
+            except Exception as e:
+                self._log_recall(c, memory_id, requester, False, f"key error: {e}")
+                conn.commit()
+                exc = ProfileKeyMissingError(
+                    f"Key access failed: {e}",
+                    actor=actor_info,
+                    metadata={"memory_id": memory_id, "profile": encryption_profile},
+                    cause=e
+                )
+                self._report_exception(exc)
+                raise exc
+
+            try:
+                plaintext = decrypt_memory(key, ciphertext, nonce)
+            except Exception as e:
+                self._log_recall(c, memory_id, requester, False, f"decrypt error: {e}")
+                conn.commit()
+                exc = DecryptionError(
+                    "Decryption failed - possible tampering or wrong key",
+                    actor=actor_info,
+                    metadata={"memory_id": memory_id, "profile": encryption_profile},
+                    cause=e
+                )
+                self._report_exception(exc)
+                raise exc
+
+            # 6. Log success + update Merkle tree
+            self._log_recall(c, memory_id, requester, True, justification)
+            conn.commit()
+        finally:
+            conn.close()
 
         # Report successful recall to SIEM
         self._report_event(
@@ -850,55 +848,57 @@ class MemoryVault:
                 return
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        # Restore encryption profiles
-        for profile in backup_data.get("encryption_profiles", []):
-            c.execute("""
-                INSERT OR REPLACE INTO encryption_profiles
-                (profile_id, cipher, key_source, rotation_policy, exportable)
-                VALUES (?, ?, ?, ?, ?)
-            """, (profile["profile_id"], profile["cipher"], profile["key_source"],
-                  profile["rotation_policy"], profile["exportable"]))
+            # Restore encryption profiles
+            for profile in backup_data.get("encryption_profiles", []):
+                c.execute("""
+                    INSERT OR REPLACE INTO encryption_profiles
+                    (profile_id, cipher, key_source, rotation_policy, exportable)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (profile["profile_id"], profile["cipher"], profile["key_source"],
+                      profile["rotation_policy"], profile["exportable"]))
 
-        # Restore memories
-        restored_count = 0
-        skipped_count = 0
+            # Restore memories
+            restored_count = 0
+            skipped_count = 0
 
-        for memory in backup_data["memories"]:
-            # Check if memory already exists
-            c.execute("SELECT 1 FROM memories WHERE memory_id = ?", (memory["memory_id"],))
-            if c.fetchone():
-                skipped_count += 1
-                continue
+            for memory in backup_data["memories"]:
+                # Check if memory already exists
+                c.execute("SELECT 1 FROM memories WHERE memory_id = ?", (memory["memory_id"],))
+                if c.fetchone():
+                    skipped_count += 1
+                    continue
 
-            # Decode binary fields
-            if memory["ciphertext"]:
-                memory["ciphertext"] = base64.b64decode(memory["ciphertext"])
-            if memory["nonce"]:
-                memory["nonce"] = base64.b64decode(memory["nonce"])
-            if memory["salt"]:
-                memory["salt"] = base64.b64decode(memory["salt"])
-            if memory["sealed_blob"]:
-                memory["sealed_blob"] = base64.b64decode(memory["sealed_blob"])
+                # Decode binary fields
+                if memory["ciphertext"]:
+                    memory["ciphertext"] = base64.b64decode(memory["ciphertext"])
+                if memory["nonce"]:
+                    memory["nonce"] = base64.b64decode(memory["nonce"])
+                if memory["salt"]:
+                    memory["salt"] = base64.b64decode(memory["salt"])
+                if memory["sealed_blob"]:
+                    memory["sealed_blob"] = base64.b64decode(memory["sealed_blob"])
 
-            c.execute("""
-                INSERT INTO memories (
-                    memory_id, created_at, created_by, classification, encryption_profile,
-                    content_hash, ciphertext, nonce, salt, intent_ref, value_metadata,
-                    access_policy, audit_proof, sealed_blob
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                memory["memory_id"], memory["created_at"], memory["created_by"],
-                memory["classification"], memory["encryption_profile"], memory["content_hash"],
-                memory["ciphertext"], memory["nonce"], memory["salt"], memory["intent_ref"],
-                memory["value_metadata"], memory["access_policy"], memory["audit_proof"],
-                memory["sealed_blob"]
-            ))
-            restored_count += 1
+                c.execute("""
+                    INSERT INTO memories (
+                        memory_id, created_at, created_by, classification, encryption_profile,
+                        content_hash, ciphertext, nonce, salt, intent_ref, value_metadata,
+                        access_policy, audit_proof, sealed_blob
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    memory["memory_id"], memory["created_at"], memory["created_by"],
+                    memory["classification"], memory["encryption_profile"], memory["content_hash"],
+                    memory["ciphertext"], memory["nonce"], memory["salt"], memory["intent_ref"],
+                    memory["value_metadata"], memory["access_policy"], memory["audit_proof"],
+                    memory["sealed_blob"]
+                ))
+                restored_count += 1
 
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
         print(f"\n✓ Restore complete")
         print(f"  Restored: {restored_count} memories")
@@ -922,133 +922,126 @@ class MemoryVault:
             from merkle import rebuild_merkle_tree, verify_proof
 
         conn = sqlite3.connect(self.db_path)
-
-        print("=== Memory Vault Integrity Verification ===\n")
-
-        # Verify Merkle tree
-        print("1. Rebuilding Merkle tree from audit log...")
-        rebuilt_root, proof_map = rebuild_merkle_tree(conn)
-
-        # Get latest stored root
-        c = conn.cursor()
-        c.execute("SELECT seq, root_hash, timestamp, signature FROM merkle_roots ORDER BY seq DESC LIMIT 1")
-        root_row = c.fetchone()
-
-        if not root_row:
-            print("✓ No audit logs yet (empty vault)")
-            conn.close()
-            return True
-
-        stored_seq, stored_root, stored_timestamp, signature = root_row
-
-        print(f"   Latest root: {stored_root[:32]}...")
-        print(f"   Rebuilt root: {rebuilt_root[:32]}...")
-
-        if rebuilt_root != stored_root:
-            print("✗ INTEGRITY FAILURE: Merkle root mismatch!")
-            print("   Audit log may have been tampered with")
-            conn.close()
-            return False
-
-        print("✓ Merkle root matches\n")
-
-        # Verify signature
-        print("2. Verifying cryptographic signature...")
         try:
-            from .crypto import get_public_verify_key, verify_signature
-        except ImportError:
-            from crypto import get_public_verify_key, verify_signature
+            print("=== Memory Vault Integrity Verification ===\n")
 
-        try:
-            vk = get_public_verify_key()
-            sig_valid = verify_signature(vk, signature, stored_root, stored_seq, stored_timestamp)
+            # Verify Merkle tree
+            print("1. Rebuilding Merkle tree from audit log...")
+            rebuilt_root, proof_map = rebuild_merkle_tree(conn)
 
-            if sig_valid:
-                print("✓ Signature valid\n")
-            else:
-                print("✗ INTEGRITY FAILURE: Invalid signature!")
-                conn.close()
-                return False
-        except Exception as e:
-            print(f"⚠ Warning: Could not verify signature: {e}\n")
+            # Get latest stored root
+            c = conn.cursor()
+            c.execute("SELECT seq, root_hash, timestamp, signature FROM merkle_roots ORDER BY seq DESC LIMIT 1")
+            root_row = c.fetchone()
 
-        # Verify all root signatures
-        print("3. Verifying all historical root signatures...")
-        c.execute("SELECT seq, root_hash, timestamp, signature FROM merkle_roots ORDER BY seq")
-        all_roots = c.fetchall()
-
-        failed_sigs = 0
-        for seq, root_hash, timestamp, sig in all_roots:
-            try:
-                if not verify_signature(vk, sig, root_hash, seq, timestamp):
-                    print(f"✗ Signature failed for root seq {seq}")
-                    failed_sigs += 1
-            except Exception as e:
-                print(f"⚠ Could not verify signature for seq {seq}: {e}")
-
-        if failed_sigs > 0:
-            print(f"✗ INTEGRITY FAILURE: {failed_sigs} invalid signatures")
-            conn.close()
-            return False
-
-        print(f"✓ All {len(all_roots)} root signatures valid\n")
-
-        # Verify specific memory proof if requested
-        if memory_id:
-            print(f"4. Verifying proof for memory {memory_id}...")
-
-            c.execute("SELECT audit_proof FROM memories WHERE memory_id = ?", (memory_id,))
-            row = c.fetchone()
-            if not row:
-                print(f"✗ Memory {memory_id} not found")
-                conn.close()
-                return False
-
-            audit_proof = json.loads(row[0] or "[]")
-
-            # Find this memory's leaf in recall log
-            c.execute("""
-                SELECT request_id FROM recall_log
-                WHERE memory_id = ?
-                ORDER BY timestamp DESC LIMIT 1
-            """, (memory_id,))
-            recall_row = c.fetchone()
-
-            if not recall_row:
-                print("✓ No recall events for this memory yet")
-                conn.close()
+            if not root_row:
+                print("✓ No audit logs yet (empty vault)")
                 return True
 
-            request_id = recall_row[0]
+            stored_seq, stored_root, stored_timestamp, signature = root_row
 
-            # Get leaf hash
-            c.execute("SELECT leaf_hash FROM merkle_leaves WHERE request_id = ?", (request_id,))
-            leaf_row = c.fetchone()
+            print(f"   Latest root: {stored_root[:32]}...")
+            print(f"   Rebuilt root: {rebuilt_root[:32]}...")
 
-            if not leaf_row:
-                print("✗ Leaf not found in Merkle tree")
-                conn.close()
+            if rebuilt_root != stored_root:
+                print("✗ INTEGRITY FAILURE: Merkle root mismatch!")
+                print("   Audit log may have been tampered with")
                 return False
 
-            leaf_hash = leaf_row[0]
+            print("✓ Merkle root matches\n")
 
-            # Verify proof
-            proof_valid = verify_proof(leaf_hash, stored_root, audit_proof)
+            # Verify signature
+            print("2. Verifying cryptographic signature...")
+            try:
+                from .crypto import get_public_verify_key, verify_signature
+            except ImportError:
+                from crypto import get_public_verify_key, verify_signature
 
-            if proof_valid:
-                print(f"✓ Memory proof valid (leaf in tree)")
-            else:
-                print(f"✗ INTEGRITY FAILURE: Invalid Merkle proof")
-                conn.close()
+            try:
+                vk = get_public_verify_key()
+                sig_valid = verify_signature(vk, signature, stored_root, stored_seq, stored_timestamp)
+
+                if sig_valid:
+                    print("✓ Signature valid\n")
+                else:
+                    print("✗ INTEGRITY FAILURE: Invalid signature!")
+                    return False
+            except Exception as e:
+                print(f"⚠ Warning: Could not verify signature: {e}\n")
+                vk = None  # Mark as unavailable for later checks
+
+            # Verify all root signatures
+            print("3. Verifying all historical root signatures...")
+            c.execute("SELECT seq, root_hash, timestamp, signature FROM merkle_roots ORDER BY seq")
+            all_roots = c.fetchall()
+
+            failed_sigs = 0
+            for seq, root_hash, timestamp, sig in all_roots:
+                try:
+                    if vk and not verify_signature(vk, sig, root_hash, seq, timestamp):
+                        print(f"✗ Signature failed for root seq {seq}")
+                        failed_sigs += 1
+                except Exception as e:
+                    print(f"⚠ Could not verify signature for seq {seq}: {e}")
+
+            if failed_sigs > 0:
+                print(f"✗ INTEGRITY FAILURE: {failed_sigs} invalid signatures")
                 return False
 
-        conn.close()
+            print(f"✓ All {len(all_roots)} root signatures valid\n")
 
-        print("\n" + "="*50)
-        print("✓ INTEGRITY VERIFICATION PASSED")
-        print("="*50)
+            # Verify specific memory proof if requested
+            if memory_id:
+                print(f"4. Verifying proof for memory {memory_id}...")
 
-        return True
+                c.execute("SELECT audit_proof FROM memories WHERE memory_id = ?", (memory_id,))
+                row = c.fetchone()
+                if not row:
+                    print(f"✗ Memory {memory_id} not found")
+                    return False
+
+                audit_proof = json.loads(row[0] or "[]")
+
+                # Find this memory's leaf in recall log
+                c.execute("""
+                    SELECT request_id FROM recall_log
+                    WHERE memory_id = ?
+                    ORDER BY timestamp DESC LIMIT 1
+                """, (memory_id,))
+                recall_row = c.fetchone()
+
+                if not recall_row:
+                    print("✓ No recall events for this memory yet")
+                    return True
+
+                request_id = recall_row[0]
+
+                # Get leaf hash
+                c.execute("SELECT leaf_hash FROM merkle_leaves WHERE request_id = ?", (request_id,))
+                leaf_row = c.fetchone()
+
+                if not leaf_row:
+                    print("✗ Leaf not found in Merkle tree")
+                    return False
+
+                leaf_hash = leaf_row[0]
+
+                # Verify proof
+                proof_valid = verify_proof(leaf_hash, stored_root, audit_proof)
+
+                if proof_valid:
+                    print(f"✓ Memory proof valid (leaf in tree)")
+                else:
+                    print(f"✗ INTEGRITY FAILURE: Invalid Merkle proof")
+                    return False
+
+            print("\n" + "="*50)
+            print("✓ INTEGRITY VERIFICATION PASSED")
+            print("="*50)
+
+            return True
+        finally:
+            conn.close()
 
     # ==================== Level 0 Ephemeral Auto-Purge ====================
 
@@ -1065,47 +1058,51 @@ class MemoryVault:
         cutoff = (datetime.utcnow() - timedelta(hours=max_age_hours)).isoformat()
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        # Get count before delete
-        c.execute("""
-            SELECT COUNT(*) FROM memories
-            WHERE classification = 0 AND created_at < ?
-        """, (cutoff,))
-        count = c.fetchone()[0]
-
-        if count > 0:
-            # Delete from FTS first (triggers should handle this, but be explicit)
+            # Get count before delete
             c.execute("""
-                DELETE FROM memories
+                SELECT COUNT(*) FROM memories
                 WHERE classification = 0 AND created_at < ?
             """, (cutoff,))
-            conn.commit()
-            print(f"Purged {count} ephemeral memories older than {max_age_hours} hours")
-        else:
-            print("No ephemeral memories to purge")
+            count = c.fetchone()[0]
 
-        conn.close()
-        return count
+            if count > 0:
+                # Delete from FTS first (triggers should handle this, but be explicit)
+                c.execute("""
+                    DELETE FROM memories
+                    WHERE classification = 0 AND created_at < ?
+                """, (cutoff,))
+                conn.commit()
+                print(f"Purged {count} ephemeral memories older than {max_age_hours} hours")
+            else:
+                print("No ephemeral memories to purge")
+
+            return count
+        finally:
+            conn.close()
 
     def get_ephemeral_count(self) -> dict:
         """Get count and age statistics for ephemeral memories."""
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        c.execute("SELECT COUNT(*) FROM memories WHERE classification = 0")
-        total = c.fetchone()[0]
+            c.execute("SELECT COUNT(*) FROM memories WHERE classification = 0")
+            total = c.fetchone()[0]
 
-        c.execute("""
-            SELECT MIN(created_at), MAX(created_at) FROM memories
-            WHERE classification = 0
-        """)
-        row = c.fetchone()
-        oldest = row[0] if row[0] else None
-        newest = row[1] if row[1] else None
+            c.execute("""
+                SELECT MIN(created_at), MAX(created_at) FROM memories
+                WHERE classification = 0
+            """)
+            row = c.fetchone()
+            oldest = row[0] if row[0] else None
+            newest = row[1] if row[1] else None
 
-        conn.close()
-        return {"count": total, "oldest": oldest, "newest": newest}
+            return {"count": total, "oldest": oldest, "newest": newest}
+        finally:
+            conn.close()
 
     # ==================== Lockdown Mode ====================
 
@@ -1117,14 +1114,16 @@ class MemoryVault:
             tuple: (is_locked: bool, since: str or None, reason: str or None)
         """
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute("SELECT lockdown, lockdown_since, lockdown_reason FROM vault_state WHERE id = 1")
-        row = c.fetchone()
-        conn.close()
+        try:
+            c = conn.cursor()
+            c.execute("SELECT lockdown, lockdown_since, lockdown_reason FROM vault_state WHERE id = 1")
+            row = c.fetchone()
 
-        if row:
-            return bool(row[0]), row[1], row[2]
-        return False, None, None
+            if row:
+                return bool(row[0]), row[1], row[2]
+            return False, None, None
+        finally:
+            conn.close()
 
     def enter_lockdown(self, reason: str) -> bool:
         """
@@ -1161,16 +1160,18 @@ class MemoryVault:
         timestamp = datetime.utcnow().isoformat() + "Z"
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute("""
-            UPDATE vault_state SET
-                lockdown = 1,
-                lockdown_since = ?,
-                lockdown_reason = ?
-            WHERE id = 1
-        """, (timestamp, reason))
-        conn.commit()
-        conn.close()
+        try:
+            c = conn.cursor()
+            c.execute("""
+                UPDATE vault_state SET
+                    lockdown = 1,
+                    lockdown_since = ?,
+                    lockdown_reason = ?
+                WHERE id = 1
+            """, (timestamp, reason))
+            conn.commit()
+        finally:
+            conn.close()
 
         print("\n" + "="*50)
         print("🔒 VAULT IS NOW IN LOCKDOWN")
@@ -1215,12 +1216,11 @@ class MemoryVault:
             passphrase = getpass.getpass("Enter unlock passphrase: ")
 
         # Verify passphrase against default profile
+        conn = sqlite3.connect(self.db_path)
         try:
-            conn = sqlite3.connect(self.db_path)
             c = conn.cursor()
             c.execute("SELECT profile_id FROM encryption_profiles WHERE key_source = 'HumanPassphrase' LIMIT 1")
             row = c.fetchone()
-            conn.close()
 
             if row:
                 # Just verify the passphrase can derive a key (basic check)
@@ -1230,6 +1230,8 @@ class MemoryVault:
         except Exception as e:
             print(f"Passphrase verification failed: {e}")
             return False
+        finally:
+            conn.close()
 
         confirm = input("Type 'UNLOCK VAULT' to confirm: ").strip()
         if confirm != "UNLOCK VAULT":
@@ -1237,16 +1239,18 @@ class MemoryVault:
             return False
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute("""
-            UPDATE vault_state SET
-                lockdown = 0,
-                lockdown_since = NULL,
-                lockdown_reason = NULL
-            WHERE id = 1
-        """, )
-        conn.commit()
-        conn.close()
+        try:
+            c = conn.cursor()
+            c.execute("""
+                UPDATE vault_state SET
+                    lockdown = 0,
+                    lockdown_since = NULL,
+                    lockdown_reason = NULL
+                WHERE id = 1
+            """, )
+            conn.commit()
+        finally:
+            conn.close()
 
         print("\n" + "="*50)
         print("🔓 VAULT LOCKDOWN LIFTED")
@@ -1269,16 +1273,18 @@ class MemoryVault:
         timestamp = datetime.utcnow().isoformat() + "Z"
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute("""
-            UPDATE vault_state SET
-                lockdown = 1,
-                lockdown_since = ?,
-                lockdown_reason = ?
-            WHERE id = 1
-        """, (timestamp, reason))
-        conn.commit()
-        conn.close()
+        try:
+            c = conn.cursor()
+            c.execute("""
+                UPDATE vault_state SET
+                    lockdown = 1,
+                    lockdown_since = ?,
+                    lockdown_reason = ?
+                WHERE id = 1
+            """, (timestamp, reason))
+            conn.commit()
+        finally:
+            conn.close()
 
         print(f"🔒 VAULT LOCKDOWN ENABLED: {reason}")
         return True
@@ -1292,16 +1298,18 @@ class MemoryVault:
             bool: True if lockdown was deactivated
         """
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute("""
-            UPDATE vault_state SET
-                lockdown = 0,
-                lockdown_since = NULL,
-                lockdown_reason = NULL
-            WHERE id = 1
-        """)
-        conn.commit()
-        conn.close()
+        try:
+            c = conn.cursor()
+            c.execute("""
+                UPDATE vault_state SET
+                    lockdown = 0,
+                    lockdown_since = NULL,
+                    lockdown_reason = NULL
+                WHERE id = 1
+            """)
+            conn.commit()
+        finally:
+            conn.close()
 
         print("🔓 VAULT LOCKDOWN DISABLED")
         return True
@@ -1332,167 +1340,161 @@ class MemoryVault:
         validate_profile_id(profile_id)
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        # Get profile info
-        c.execute("""
-            SELECT key_source, rotation_count FROM encryption_profiles
-            WHERE profile_id = ?
-        """, (profile_id,))
-        row = c.fetchone()
+            # Get profile info
+            c.execute("""
+                SELECT key_source, rotation_count FROM encryption_profiles
+                WHERE profile_id = ?
+            """, (profile_id,))
+            row = c.fetchone()
 
-        if not row:
+            if not row:
+                raise ValueError(f"Profile '{profile_id}' not found")
+
+            key_source = row[0]
+            rotation_count = row[1] or 0
+
+            if key_source == "TPM":
+                raise ValueError("TPM profiles cannot be rotated (hardware-bound)")
+
+            # Count affected memories
+            c.execute("SELECT COUNT(*) FROM memories WHERE encryption_profile = ?", (profile_id,))
+            memory_count = c.fetchone()[0]
+
+            print("\n" + "="*50)
+            print(f"🔑 KEY ROTATION: {profile_id}")
+            print("="*50)
+            print(f"\nKey source: {key_source}")
+            print(f"Memories to re-encrypt: {memory_count}")
+            print(f"Previous rotations: {rotation_count}")
+            print("\nThis operation will:")
+            print("  1. Decrypt all memories with the OLD key")
+            print("  2. Re-encrypt all memories with the NEW key")
+            print("  3. Update the profile rotation count")
+
+            if key_source == "KeyFile":
+                print("\n⚠️  WARNING: After rotation, securely destroy the OLD keyfile!")
+
+            print("\nPhysical token required for key rotation.\n")
+
+            if not require_physical_token("Rotate encryption key"):
+                print("Rotation aborted: Physical token required")
+                return False
+
+            # Get current key
+            print("\n--- Current Key ---")
+            if key_source == "HumanPassphrase":
+                old_passphrase = getpass.getpass(f"Enter CURRENT passphrase for '{profile_id}': ")
+            else:  # KeyFile
+                keyfile_path = os.path.expanduser(f"~/.memory_vault/keys/{profile_id}.key")
+                if not os.path.exists(keyfile_path):
+                    raise FileNotFoundError(f"Keyfile not found: {keyfile_path}")
+
+            # Get new key
+            print("\n--- New Key ---")
+            if key_source == "HumanPassphrase":
+                if new_passphrase is None:
+                    new_passphrase = getpass.getpass(f"Enter NEW passphrase for '{profile_id}': ")
+                    confirm = getpass.getpass("Confirm NEW passphrase: ")
+                    if new_passphrase != confirm:
+                        raise ValueError("Passphrases do not match")
+            else:  # KeyFile - generate new keyfile
+                new_keyfile_path = os.path.expanduser(f"~/.memory_vault/keys/{profile_id}.key.new")
+                new_key = nacl_random(32)
+                os.makedirs(os.path.dirname(new_keyfile_path), exist_ok=True)
+                with open(new_keyfile_path, "wb") as f:
+                    os.fchmod(f.fileno(), 0o600)
+                    f.write(new_key)
+                print(f"New keyfile generated: {new_keyfile_path}")
+
+            confirm = input("\nType 'ROTATE KEY' to proceed: ").strip()
+            if confirm != "ROTATE KEY":
+                print("Rotation aborted")
+                return False
+
+            # Fetch all memories for this profile
+            c.execute("""
+                SELECT memory_id, ciphertext, nonce, salt, sealed_blob
+                FROM memories WHERE encryption_profile = ?
+            """, (profile_id,))
+            memories = c.fetchall()
+
+            success_count = 0
+            error_count = 0
+
+            for memory_id, ciphertext, nonce, old_salt, sealed_blob in memories:
+                try:
+                    # Derive old key
+                    if key_source == "HumanPassphrase":
+                        old_key, _ = derive_key_from_passphrase(old_passphrase, old_salt)
+                    else:
+                        old_key = load_key_from_file(keyfile_path)
+
+                    # Decrypt with old key
+                    plaintext = decrypt_memory(old_key, ciphertext, nonce)
+
+                    # Generate new salt/nonce
+                    new_salt = nacl_random(16) if key_source == "HumanPassphrase" else None
+                    new_nonce = nacl_random(24)
+
+                    # Derive new key
+                    if key_source == "HumanPassphrase":
+                        new_key, new_salt = derive_key_from_passphrase(new_passphrase, new_salt)
+                    else:
+                        new_key = new_key  # Already have the key
+
+                    # Encrypt with new key
+                    new_ciphertext, new_nonce = encrypt_memory(new_key, plaintext)
+
+                    # Update database
+                    c.execute("""
+                        UPDATE memories SET
+                            ciphertext = ?,
+                            nonce = ?,
+                            salt = ?
+                        WHERE memory_id = ?
+                    """, (new_ciphertext, new_nonce, new_salt, memory_id))
+
+                    success_count += 1
+                    print(f"  ✓ Rotated: {memory_id[:8]}...")
+
+                except Exception as e:
+                    error_count += 1
+                    print(f"  ✗ Failed: {memory_id[:8]}... - {e}")
+
+            if error_count > 0:
+                print(f"\n⚠️  {error_count} memories failed to rotate!")
+                print("Rolling back transaction...")
+                conn.rollback()
+                return False
+
+            # Update profile rotation tracking
+            timestamp = datetime.utcnow().isoformat() + "Z"
+            c.execute("""
+                UPDATE encryption_profiles SET
+                    last_rotation = ?,
+                    rotation_count = ?
+                WHERE profile_id = ?
+            """, (timestamp, rotation_count + 1, profile_id))
+
+            conn.commit()
+
+            # For KeyFile, move new keyfile to replace old
+            if key_source == "KeyFile":
+                import shutil
+                old_keyfile_backup = keyfile_path + f".old.{rotation_count}"
+                shutil.move(keyfile_path, old_keyfile_backup)
+                shutil.move(new_keyfile_path, keyfile_path)
+                print(f"\nOld keyfile backed up to: {old_keyfile_backup}")
+                print(f"⚠️  IMPORTANT: Securely delete {old_keyfile_backup} after verifying rotation!")
+
+            # Clear cached key
+            if profile_id in self.profile_keys:
+                del self.profile_keys[profile_id]
+        finally:
             conn.close()
-            raise ValueError(f"Profile '{profile_id}' not found")
-
-        key_source = row[0]
-        rotation_count = row[1] or 0
-
-        if key_source == "TPM":
-            conn.close()
-            raise ValueError("TPM profiles cannot be rotated (hardware-bound)")
-
-        # Count affected memories
-        c.execute("SELECT COUNT(*) FROM memories WHERE encryption_profile = ?", (profile_id,))
-        memory_count = c.fetchone()[0]
-
-        print("\n" + "="*50)
-        print(f"🔑 KEY ROTATION: {profile_id}")
-        print("="*50)
-        print(f"\nKey source: {key_source}")
-        print(f"Memories to re-encrypt: {memory_count}")
-        print(f"Previous rotations: {rotation_count}")
-        print("\nThis operation will:")
-        print("  1. Decrypt all memories with the OLD key")
-        print("  2. Re-encrypt all memories with the NEW key")
-        print("  3. Update the profile rotation count")
-
-        if key_source == "KeyFile":
-            print("\n⚠️  WARNING: After rotation, securely destroy the OLD keyfile!")
-
-        print("\nPhysical token required for key rotation.\n")
-
-        if not require_physical_token("Rotate encryption key"):
-            conn.close()
-            print("Rotation aborted: Physical token required")
-            return False
-
-        # Get current key
-        print("\n--- Current Key ---")
-        if key_source == "HumanPassphrase":
-            old_passphrase = getpass.getpass(f"Enter CURRENT passphrase for '{profile_id}': ")
-        else:  # KeyFile
-            keyfile_path = os.path.expanduser(f"~/.memory_vault/keys/{profile_id}.key")
-            if not os.path.exists(keyfile_path):
-                conn.close()
-                raise FileNotFoundError(f"Keyfile not found: {keyfile_path}")
-
-        # Get new key
-        print("\n--- New Key ---")
-        if key_source == "HumanPassphrase":
-            if new_passphrase is None:
-                new_passphrase = getpass.getpass(f"Enter NEW passphrase for '{profile_id}': ")
-                confirm = getpass.getpass("Confirm NEW passphrase: ")
-                if new_passphrase != confirm:
-                    conn.close()
-                    raise ValueError("Passphrases do not match")
-        else:  # KeyFile - generate new keyfile
-            new_keyfile_path = os.path.expanduser(f"~/.memory_vault/keys/{profile_id}.key.new")
-            new_key = nacl_random(32)
-            os.makedirs(os.path.dirname(new_keyfile_path), exist_ok=True)
-            with open(new_keyfile_path, "wb") as f:
-                os.fchmod(f.fileno(), 0o600)
-                f.write(new_key)
-            print(f"New keyfile generated: {new_keyfile_path}")
-
-        confirm = input("\nType 'ROTATE KEY' to proceed: ").strip()
-        if confirm != "ROTATE KEY":
-            conn.close()
-            print("Rotation aborted")
-            return False
-
-        # Fetch all memories for this profile
-        c.execute("""
-            SELECT memory_id, ciphertext, nonce, salt, sealed_blob
-            FROM memories WHERE encryption_profile = ?
-        """, (profile_id,))
-        memories = c.fetchall()
-
-        success_count = 0
-        error_count = 0
-
-        for memory_id, ciphertext, nonce, old_salt, sealed_blob in memories:
-            try:
-                # Derive old key
-                if key_source == "HumanPassphrase":
-                    old_key, _ = derive_key_from_passphrase(old_passphrase, old_salt)
-                else:
-                    old_key = load_key_from_file(keyfile_path)
-
-                # Decrypt with old key
-                plaintext = decrypt_memory(old_key, ciphertext, nonce)
-
-                # Generate new salt/nonce
-                new_salt = nacl_random(16) if key_source == "HumanPassphrase" else None
-                new_nonce = nacl_random(24)
-
-                # Derive new key
-                if key_source == "HumanPassphrase":
-                    new_key, new_salt = derive_key_from_passphrase(new_passphrase, new_salt)
-                else:
-                    new_key = new_key  # Already have the key
-
-                # Encrypt with new key
-                new_ciphertext, new_nonce = encrypt_memory(new_key, plaintext)
-
-                # Update database
-                c.execute("""
-                    UPDATE memories SET
-                        ciphertext = ?,
-                        nonce = ?,
-                        salt = ?
-                    WHERE memory_id = ?
-                """, (new_ciphertext, new_nonce, new_salt, memory_id))
-
-                success_count += 1
-                print(f"  ✓ Rotated: {memory_id[:8]}...")
-
-            except Exception as e:
-                error_count += 1
-                print(f"  ✗ Failed: {memory_id[:8]}... - {e}")
-
-        if error_count > 0:
-            print(f"\n⚠️  {error_count} memories failed to rotate!")
-            print("Rolling back transaction...")
-            conn.rollback()
-            conn.close()
-            return False
-
-        # Update profile rotation tracking
-        timestamp = datetime.utcnow().isoformat() + "Z"
-        c.execute("""
-            UPDATE encryption_profiles SET
-                last_rotation = ?,
-                rotation_count = ?
-            WHERE profile_id = ?
-        """, (timestamp, rotation_count + 1, profile_id))
-
-        conn.commit()
-
-        # For KeyFile, move new keyfile to replace old
-        if key_source == "KeyFile":
-            import shutil
-            old_keyfile_backup = keyfile_path + f".old.{rotation_count}"
-            shutil.move(keyfile_path, old_keyfile_backup)
-            shutil.move(new_keyfile_path, keyfile_path)
-            print(f"\nOld keyfile backed up to: {old_keyfile_backup}")
-            print(f"⚠️  IMPORTANT: Securely delete {old_keyfile_backup} after verifying rotation!")
-
-        # Clear cached key
-        if profile_id in self.profile_keys:
-            del self.profile_keys[profile_id]
-
-        conn.close()
 
         print("\n" + "="*50)
         print(f"✓ KEY ROTATION COMPLETE")
@@ -1528,68 +1530,66 @@ class MemoryVault:
             from physical_token import require_physical_token
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        c.execute("""
-            SELECT classification, tombstoned FROM memories WHERE memory_id = ?
-        """, (memory_id,))
-        row = c.fetchone()
+            c.execute("""
+                SELECT classification, tombstoned FROM memories WHERE memory_id = ?
+            """, (memory_id,))
+            row = c.fetchone()
 
-        if not row:
-            conn.close()
-            raise ValueError(f"Memory '{memory_id}' not found")
+            if not row:
+                raise ValueError(f"Memory '{memory_id}' not found")
 
-        classification, already_tombstoned = row
+            classification, already_tombstoned = row
 
-        if already_tombstoned:
-            conn.close()
-            print(f"Memory {memory_id} is already tombstoned")
-            return False
-
-        print("\n" + "="*50)
-        print(f"TOMBSTONE MEMORY: {memory_id}")
-        print("="*50)
-        print(f"\nClassification: Level {classification}")
-        print(f"Reason: {reason}")
-        if not skip_confirmation:
-            print("\nThis will mark the memory as INACCESSIBLE.")
-            print("The memory will be retained for audit but cannot be recalled.")
-
-            # Level 3+ requires physical token
-            if classification >= 3:
-                print("\nPhysical token required for Level 3+ tombstoning.\n")
-                if not require_physical_token("Tombstone high-security memory"):
-                    conn.close()
-                    print("Tombstone aborted: Physical token required")
-                    return False
-
-            confirm = input("Type 'TOMBSTONE' to confirm: ").strip()
-            if confirm != "TOMBSTONE":
-                conn.close()
-                print("Tombstone aborted")
+            if already_tombstoned:
+                print(f"Memory {memory_id} is already tombstoned")
                 return False
 
-        timestamp = datetime.utcnow().isoformat() + "Z"
+            print("\n" + "="*50)
+            print(f"TOMBSTONE MEMORY: {memory_id}")
+            print("="*50)
+            print(f"\nClassification: Level {classification}")
+            print(f"Reason: {reason}")
+            if not skip_confirmation:
+                print("\nThis will mark the memory as INACCESSIBLE.")
+                print("The memory will be retained for audit but cannot be recalled.")
 
-        c.execute("""
-            UPDATE memories SET
-                tombstoned = 1,
-                tombstoned_at = ?,
-                tombstone_reason = ?
-            WHERE memory_id = ?
-        """, (timestamp, reason, memory_id))
+                # Level 3+ requires physical token
+                if classification >= 3:
+                    print("\nPhysical token required for Level 3+ tombstoning.\n")
+                    if not require_physical_token("Tombstone high-security memory"):
+                        print("Tombstone aborted: Physical token required")
+                        return False
 
-        conn.commit()
-        conn.close()
+                confirm = input("Type 'TOMBSTONE' to confirm: ").strip()
+                if confirm != "TOMBSTONE":
+                    print("Tombstone aborted")
+                    return False
 
-        print("\n" + "="*50)
-        print(f"MEMORY TOMBSTONED")
-        print(f"  ID: {memory_id}")
-        print(f"  Reason: {reason}")
-        print(f"  Timestamp: {timestamp}")
-        print("="*50 + "\n")
+            timestamp = datetime.utcnow().isoformat() + "Z"
 
-        return True
+            c.execute("""
+                UPDATE memories SET
+                    tombstoned = 1,
+                    tombstoned_at = ?,
+                    tombstone_reason = ?
+                WHERE memory_id = ?
+            """, (timestamp, reason, memory_id))
+
+            conn.commit()
+
+            print("\n" + "="*50)
+            print(f"MEMORY TOMBSTONED")
+            print(f"  ID: {memory_id}")
+            print(f"  Reason: {reason}")
+            print(f"  Timestamp: {timestamp}")
+            print("="*50 + "\n")
+
+            return True
+        finally:
+            conn.close()
 
     def get_tombstoned_memories(self) -> list:
         """
@@ -1599,27 +1599,29 @@ class MemoryVault:
             List of tombstoned memory summaries
         """
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        c.execute("""
-            SELECT memory_id, classification, tombstoned_at, tombstone_reason, created_at
-            FROM memories
-            WHERE tombstoned = 1
-            ORDER BY tombstoned_at DESC
-        """)
+            c.execute("""
+                SELECT memory_id, classification, tombstoned_at, tombstone_reason, created_at
+                FROM memories
+                WHERE tombstoned = 1
+                ORDER BY tombstoned_at DESC
+            """)
 
-        results = []
-        for row in c.fetchall():
-            results.append({
-                "memory_id": row[0],
-                "classification": row[1],
-                "tombstoned_at": row[2],
-                "reason": row[3],
-                "created_at": row[4]
-            })
+            results = []
+            for row in c.fetchall():
+                results.append({
+                    "memory_id": row[0],
+                    "classification": row[1],
+                    "tombstoned_at": row[2],
+                    "reason": row[3],
+                    "created_at": row[4]
+                })
 
-        conn.close()
-        return results
+            return results
+        finally:
+            conn.close()
 
     def is_tombstoned(self, memory_id: str) -> tuple:
         """
@@ -1629,19 +1631,21 @@ class MemoryVault:
             tuple: (is_tombstoned, tombstoned_at, reason)
         """
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        c.execute("""
-            SELECT tombstoned, tombstoned_at, tombstone_reason
-            FROM memories WHERE memory_id = ?
-        """, (memory_id,))
-        row = c.fetchone()
-        conn.close()
+            c.execute("""
+                SELECT tombstoned, tombstoned_at, tombstone_reason
+                FROM memories WHERE memory_id = ?
+            """, (memory_id,))
+            row = c.fetchone()
 
-        if not row:
-            raise ValueError(f"Memory '{memory_id}' not found")
+            if not row:
+                raise ValueError(f"Memory '{memory_id}' not found")
 
-        return bool(row[0]), row[1], row[2]
+            return bool(row[0]), row[1], row[2]
+        finally:
+            conn.close()
 
     # ==================== NatLangChain Integration ====================
 
@@ -1663,50 +1667,50 @@ class MemoryVault:
             raise RuntimeError("NatLangChain integration not available")
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        c.execute("""
-            SELECT content_hash, classification, intent_ref, chain_anchor_id
-            FROM memories WHERE memory_id = ?
-        """, (memory_id,))
-        row = c.fetchone()
-
-        if not row:
-            conn.close()
-            raise ValueError(f"Memory '{memory_id}' not found")
-
-        content_hash, classification, intent_ref, existing_anchor = row
-
-        if existing_anchor:
-            conn.close()
-            print(f"Memory {memory_id} already anchored: {existing_anchor}")
-            return existing_anchor
-
-        entry_id = anchor_memory_to_chain(
-            memory_id=memory_id,
-            content_hash=content_hash,
-            classification=classification,
-            intent_ref=intent_ref,
-            author=author
-        )
-
-        if entry_id:
-            # Store anchor reference
-            timestamp = datetime.utcnow().isoformat() + "Z"
             c.execute("""
-                INSERT INTO chain_anchors
-                (anchor_id, memory_id, entry_id, anchor_type, anchored_at)
-                VALUES (?, ?, ?, ?, ?)
-            """, (str(uuid.uuid4()), memory_id, entry_id, "memory_anchor", timestamp))
+                SELECT content_hash, classification, intent_ref, chain_anchor_id
+                FROM memories WHERE memory_id = ?
+            """, (memory_id,))
+            row = c.fetchone()
 
-            c.execute("UPDATE memories SET chain_anchor_id = ? WHERE memory_id = ?",
-                     (entry_id, memory_id))
+            if not row:
+                raise ValueError(f"Memory '{memory_id}' not found")
 
-            conn.commit()
-            print(f"Memory {memory_id} anchored to NatLangChain: {entry_id}")
+            content_hash, classification, intent_ref, existing_anchor = row
 
-        conn.close()
-        return entry_id
+            if existing_anchor:
+                print(f"Memory {memory_id} already anchored: {existing_anchor}")
+                return existing_anchor
+
+            entry_id = anchor_memory_to_chain(
+                memory_id=memory_id,
+                content_hash=content_hash,
+                classification=classification,
+                intent_ref=intent_ref,
+                author=author
+            )
+
+            if entry_id:
+                # Store anchor reference
+                timestamp = datetime.utcnow().isoformat() + "Z"
+                c.execute("""
+                    INSERT INTO chain_anchors
+                    (anchor_id, memory_id, entry_id, anchor_type, anchored_at)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (str(uuid.uuid4()), memory_id, entry_id, "memory_anchor", timestamp))
+
+                c.execute("UPDATE memories SET chain_anchor_id = ? WHERE memory_id = ?",
+                         (entry_id, memory_id))
+
+                conn.commit()
+                print(f"Memory {memory_id} anchored to NatLangChain: {entry_id}")
+
+            return entry_id
+        finally:
+            conn.close()
 
     def verify_chain_anchor(self, memory_id: str) -> dict:
         """
@@ -1734,27 +1738,29 @@ class MemoryVault:
             List of related chain entries
         """
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        c.execute("""
-            SELECT anchor_id, entry_id, anchor_type, anchored_at, block_hash, verified
-            FROM chain_anchors WHERE memory_id = ?
-            ORDER BY anchored_at DESC
-        """, (memory_id,))
+            c.execute("""
+                SELECT anchor_id, entry_id, anchor_type, anchored_at, block_hash, verified
+                FROM chain_anchors WHERE memory_id = ?
+                ORDER BY anchored_at DESC
+            """, (memory_id,))
 
-        results = []
-        for row in c.fetchall():
-            results.append({
-                "anchor_id": row[0],
-                "entry_id": row[1],
-                "anchor_type": row[2],
-                "anchored_at": row[3],
-                "block_hash": row[4],
-                "verified": bool(row[5])
-            })
+            results = []
+            for row in c.fetchall():
+                results.append({
+                    "anchor_id": row[0],
+                    "entry_id": row[1],
+                    "anchor_type": row[2],
+                    "anchored_at": row[3],
+                    "block_hash": row[4],
+                    "verified": bool(row[5])
+                })
 
-        conn.close()
-        return results
+            return results
+        finally:
+            conn.close()
 
     # ==================== Agent-OS Governance Integration ====================
 
@@ -1782,13 +1788,14 @@ class MemoryVault:
             return True, "Agent-OS not available, using basic boundary check"
 
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        c.execute("SELECT classification FROM memories WHERE memory_id = ?", (memory_id,))
-        row = c.fetchone()
-        classification = row[0] if row else 0
-
-        conn.close()
+            c.execute("SELECT classification FROM memories WHERE memory_id = ?", (memory_id,))
+            row = c.fetchone()
+            classification = row[0] if row else 0
+        finally:
+            conn.close()
 
         return check_agent_permission(
             agent_id=agent_id,
@@ -1851,28 +1858,28 @@ class MemoryVault:
             True if successful
         """
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        c.execute("SELECT 1 FROM memories WHERE memory_id = ?", (memory_id,))
-        if not c.fetchone():
+            c.execute("SELECT 1 FROM memories WHERE memory_id = ?", (memory_id,))
+            if not c.fetchone():
+                raise ValueError(f"Memory '{memory_id}' not found")
+
+            c.execute("SELECT 1 FROM effort_receipts WHERE receipt_id = ?", (receipt_id,))
+            if not c.fetchone():
+                raise ValueError(f"Receipt '{receipt_id}' not found")
+
+            c.execute("UPDATE memories SET effort_receipt_id = ? WHERE memory_id = ?",
+                     (receipt_id, memory_id))
+            c.execute("UPDATE effort_receipts SET memory_id = ? WHERE receipt_id = ?",
+                     (memory_id, receipt_id))
+
+            conn.commit()
+
+            print(f"Linked receipt {receipt_id[:8]}... to memory {memory_id[:8]}...")
+            return True
+        finally:
             conn.close()
-            raise ValueError(f"Memory '{memory_id}' not found")
-
-        c.execute("SELECT 1 FROM effort_receipts WHERE receipt_id = ?", (receipt_id,))
-        if not c.fetchone():
-            conn.close()
-            raise ValueError(f"Receipt '{receipt_id}' not found")
-
-        c.execute("UPDATE memories SET effort_receipt_id = ? WHERE memory_id = ?",
-                 (receipt_id, memory_id))
-        c.execute("UPDATE effort_receipts SET memory_id = ? WHERE receipt_id = ?",
-                 (memory_id, receipt_id))
-
-        conn.commit()
-        conn.close()
-
-        print(f"Linked receipt {receipt_id[:8]}... to memory {memory_id[:8]}...")
-        return True
 
     def get_effort_receipts(self, memory_id: str) -> list:
         """
@@ -1885,27 +1892,29 @@ class MemoryVault:
             List of effort receipt summaries
         """
         conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
+        try:
+            c = conn.cursor()
 
-        c.execute("""
-            SELECT receipt_id, segment_id, time_bounds_start, time_bounds_end,
-                   signal_count, effort_summary, created_at, ledger_entry_id
-            FROM effort_receipts WHERE memory_id = ?
-            ORDER BY created_at DESC
-        """, (memory_id,))
+            c.execute("""
+                SELECT receipt_id, segment_id, time_bounds_start, time_bounds_end,
+                       signal_count, effort_summary, created_at, ledger_entry_id
+                FROM effort_receipts WHERE memory_id = ?
+                ORDER BY created_at DESC
+            """, (memory_id,))
 
-        results = []
-        for row in c.fetchall():
-            results.append({
-                "receipt_id": row[0],
-                "segment_id": row[1],
-                "time_start": row[2],
-                "time_end": row[3],
-                "signal_count": row[4],
-                "effort_summary": row[5],
-                "created_at": row[6],
-                "ledger_entry_id": row[7]
-            })
+            results = []
+            for row in c.fetchall():
+                results.append({
+                    "receipt_id": row[0],
+                    "segment_id": row[1],
+                    "time_start": row[2],
+                    "time_end": row[3],
+                    "signal_count": row[4],
+                    "effort_summary": row[5],
+                    "created_at": row[6],
+                    "ledger_entry_id": row[7]
+                })
 
-        conn.close()
-        return results
+            return results
+        finally:
+            conn.close()
