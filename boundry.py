@@ -26,7 +26,11 @@ from errors import (
 
 logger = logging.getLogger(__name__)
 
-SOCKET_PATH = os.path.expanduser("~/.agent-os/api/boundary.sock")  # Standard Agent-OS path
+# Socket path is configurable via environment variable, defaults to standard Agent-OS path
+SOCKET_PATH = os.environ.get(
+    "MEMORY_VAULT_BOUNDARY_SOCKET",
+    os.path.expanduser("~/.agent-os/api/boundary.sock")
+)
 DEFAULT_TIMEOUT = 5.0
 MAX_RESPONSE_SIZE = 65536
 

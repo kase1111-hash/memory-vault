@@ -23,7 +23,7 @@ import secrets
 import hashlib
 import base64
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Tuple, Optional
 
 from nacl.utils import random as nacl_random
@@ -252,7 +252,7 @@ def create_escrow(
 
     # Create escrow record
     escrow_id = str(uuid.uuid4())
-    timestamp = datetime.utcnow().isoformat() + "Z"
+    timestamp = datetime.now(timezone.utc).isoformat() + "Z"
 
     # Encrypt each shard for its recipient
     for i, ((shard_idx, shard_data), (name, pubkey_b64)) in enumerate(zip(shards, recipients)):

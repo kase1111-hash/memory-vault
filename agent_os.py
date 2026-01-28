@@ -26,15 +26,21 @@ import socket
 import json
 import os
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Tuple
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
-# Standard Agent-OS paths
-AGENT_OS_BASE = os.path.expanduser("~/.agent-os")
-BOUNDARY_SOCKET = os.path.join(AGENT_OS_BASE, "api", "boundary.sock")
-CONSTITUTION_PATH = os.path.join(AGENT_OS_BASE, "constitutions")
+# Standard Agent-OS paths (configurable via environment variables)
+AGENT_OS_BASE = os.environ.get("AGENT_OS_BASE", os.path.expanduser("~/.agent-os"))
+BOUNDARY_SOCKET = os.environ.get(
+    "MEMORY_VAULT_BOUNDARY_SOCKET",
+    os.path.join(AGENT_OS_BASE, "api", "boundary.sock")
+)
+CONSTITUTION_PATH = os.environ.get(
+    "AGENT_OS_CONSTITUTION_PATH",
+    os.path.join(AGENT_OS_BASE, "constitutions")
+)
 AGENT_REGISTRY = os.path.join(AGENT_OS_BASE, "agents.json")
 GOVERNANCE_LOG = os.path.join(AGENT_OS_BASE, "governance.log")
 
@@ -203,7 +209,7 @@ class BoundaryDaemon:
                 name=response.get("name", "unknown"),
                 permissions=response.get("permissions", []),
                 constitution_hash=response.get("constitution_hash", ""),
-                last_seen=datetime.utcnow().isoformat() + "Z"
+                last_seen=datetime.now(timezone.utc).isoformat() + "Z"
             )
             return True, identity
 
@@ -367,7 +373,7 @@ class GovernanceLogger:
 
         decision = GovernanceDecision(
             decision_id=str(uuid.uuid4()),
-            timestamp=datetime.utcnow().isoformat() + "Z",
+            timestamp=datetime.now(timezone.utc).isoformat() + "Z",
             agent_id=agent_id,
             action=action,
             resource=resource,
@@ -619,7 +625,7 @@ def register_memory_vault_agent() -> Optional[AgentIdentity]:
             "governance:log"
         ],
         constitution_hash=constitution.get_constitution_hash("memory_vault") or "",
-        created_at=datetime.utcnow().isoformat() + "Z"
+        created_at=datetime.now(timezone.utc).isoformat() + "Z"
     )
 
     # Register with daemon

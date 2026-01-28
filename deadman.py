@@ -4,7 +4,7 @@ import sqlite3
 import json
 import os
 import getpass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 from nacl.public import SealedBox
@@ -94,8 +94,8 @@ def arm_deadman_switch(deadline_days: int, memory_ids: list[str], justification:
         print("Physical token required")
         return
 
-    deadline = (datetime.utcnow() + timedelta(days=deadline_days)).isoformat() + "Z"
-    checkin = datetime.utcnow().isoformat() + "Z"
+    deadline = (datetime.now(timezone.utc) + timedelta(days=deadline_days)).isoformat() + "Z"
+    checkin = datetime.now(timezone.utc).isoformat() + "Z"
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -131,7 +131,7 @@ def checkin_deadman_switch() -> bool:
         conn.close()
         return False
 
-    new_checkin = datetime.utcnow().isoformat() + "Z"
+    new_checkin = datetime.now(timezone.utc).isoformat() + "Z"
     c.execute("UPDATE deadman_switch SET last_checkin = ? WHERE id = 1", (new_checkin,))
     conn.commit()
     conn.close()
@@ -150,7 +150,7 @@ def is_deadman_triggered() -> bool:
     if not row[1]:
         return False
     deadline = datetime.fromisoformat(row[1].rstrip("Z"))
-    return datetime.utcnow() > deadline
+    return datetime.now(timezone.utc) > deadline
 
 
 def get_payload_memory_ids() -> list[str]:
@@ -188,7 +188,7 @@ def encrypt_payload_for_heirs(vault) -> None:
 
     payload = {
         "release_trigger": "deadman_switch",
-        "release_date": datetime.utcnow().isoformat() + "Z",
+        "release_date": datetime.now(timezone.utc).isoformat() + "Z",
         "memories": plaintext_memories
     }
     payload_json = json.dumps(payload, indent=2).encode()

@@ -15,7 +15,7 @@ whose purpose is to record explicit human intent in natural language.
 import json
 import hashlib
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field, asdict
 import os
@@ -33,7 +33,7 @@ class NatLangEntry:
     author: str
     intent_type: str = "memory_vault_record"
     metadata: Dict[str, Any] = field(default_factory=dict)
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat() + "Z")
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -249,7 +249,7 @@ Memory ID: {memory_id}
 Content Hash: {content_hash}
 Classification Level: {classification}
 {"Intent Reference: " + intent_ref if intent_ref else ""}
-Anchored At: {datetime.utcnow().isoformat()}Z
+Anchored At: {datetime.now(timezone.utc).isoformat()}Z
 
 This record attests to the existence and integrity of the above memory
 at the time of anchoring. The content remains encrypted in the vault."""

@@ -1,11 +1,11 @@
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 
 @dataclass
 class MemoryObject:
     memory_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     created_by: str = "agent"  # or "human"
     classification: int = 1  # 0-5
     encryption_profile: str = "default-passphrase"

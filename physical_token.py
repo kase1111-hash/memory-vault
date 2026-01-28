@@ -109,13 +109,14 @@ def _fido2_challenge() -> bool:
             options = {"challenge": challenge, "rpId": "memory-vault.local", "allowCredentials": []}
             client.get_assertion(options)
             return True
-        except Exception:
+        except (KeyError, ValueError, RuntimeError):
             # If no credential, just verify device presence
             # Most FIDO2 devices will blink/require touch
             return True
 
-    except Exception as e:
+    except (ImportError, OSError, IOError) as e:
         # Silently fail to try next method
+        logger.debug(f"FIDO2 challenge failed: {e}")
         return False
 
 
@@ -196,12 +197,18 @@ def _otp_challenge() -> bool:
         print("\nEnter TOTP code from your token/authenticator app:")
         code = input("Code: ").strip()
 
+        # Basic input validation - TOTP codes are 6-8 digits
+        if not code or not code.isdigit() or len(code) < 6 or len(code) > 8:
+            logger.warning("Invalid TOTP code format - must be 6-8 digits")
+            return False
+
         # Verify with window of ±1 period (30 seconds each)
         is_valid = totp.verify(code, valid_window=1)
 
         return is_valid
 
-    except Exception as e:
+    except (IOError, OSError, ValueError) as e:
+        logger.debug(f"TOTP challenge failed: {e}")
         return False
 
 
@@ -290,7 +297,7 @@ def check_token_availability() -> dict:
         try:
             devices = list(CtapHidDevice.list_devices())
             status["fido2"]["devices"] = len(devices)
-        except Exception:
+        except (OSError, IOError):
             # FIDO2 device enumeration failed, leave devices count at 0
             pass
 
