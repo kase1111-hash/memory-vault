@@ -8,7 +8,7 @@ import uuid
 import hashlib
 import base64
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 from nacl.utils import random as nacl_random
@@ -512,8 +512,8 @@ class MemoryVault:
             cooldown = access_policy.get("cooldown_seconds", 0)
             if cooldown > 0:
                 last_time = self._get_last_successful_recall_time(c, memory_id)
-                if last_time and (datetime.utcnow() - last_time) < timedelta(seconds=cooldown):
-                    remaining = int(cooldown - (datetime.utcnow() - last_time).total_seconds())
+                if last_time and (datetime.now(timezone.utc) - last_time) < timedelta(seconds=cooldown):
+                    remaining = int(cooldown - (datetime.now(timezone.utc) - last_time).total_seconds())
                     self._log_recall(c, memory_id, requester, False, f"cooldown: {remaining}s")
                     conn.commit()
                     exc = CooldownError(
@@ -615,7 +615,7 @@ class MemoryVault:
 
     def _log_recall(self, cursor, memory_id: str, requester: str, approved: bool, justification: str):
         request_id = str(uuid.uuid4())
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
 
         cursor.execute('''
             INSERT INTO recall_log 
@@ -767,7 +767,7 @@ class MemoryVault:
             "backup_id": backup_id,
             "backup_type": backup_type,
             "parent_backup_id": parent_backup_id,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
             "description": description,
             "memory_count": len(memories),
             "memories": memories,
@@ -1055,7 +1055,7 @@ class MemoryVault:
         Returns:
             int: Number of memories purged
         """
-        cutoff = (datetime.utcnow() - timedelta(hours=max_age_hours)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_hours)).isoformat()
 
         conn = sqlite3.connect(self.db_path)
         try:
@@ -1157,7 +1157,7 @@ class MemoryVault:
             print("Lockdown aborted")
             return False
 
-        timestamp = datetime.utcnow().isoformat() + "Z"
+        timestamp = datetime.now(timezone.utc).isoformat() + "Z"
 
         conn = sqlite3.connect(self.db_path)
         try:
@@ -1270,7 +1270,7 @@ class MemoryVault:
         Returns:
             bool: True if lockdown was activated
         """
-        timestamp = datetime.utcnow().isoformat() + "Z"
+        timestamp = datetime.now(timezone.utc).isoformat() + "Z"
 
         conn = sqlite3.connect(self.db_path)
         try:
@@ -1471,7 +1471,7 @@ class MemoryVault:
                 return False
 
             # Update profile rotation tracking
-            timestamp = datetime.utcnow().isoformat() + "Z"
+            timestamp = datetime.now(timezone.utc).isoformat() + "Z"
             c.execute("""
                 UPDATE encryption_profiles SET
                     last_rotation = ?,
@@ -1568,7 +1568,7 @@ class MemoryVault:
                     print("Tombstone aborted")
                     return False
 
-            timestamp = datetime.utcnow().isoformat() + "Z"
+            timestamp = datetime.now(timezone.utc).isoformat() + "Z"
 
             c.execute("""
                 UPDATE memories SET
@@ -1695,7 +1695,7 @@ class MemoryVault:
 
             if entry_id:
                 # Store anchor reference
-                timestamp = datetime.utcnow().isoformat() + "Z"
+                timestamp = datetime.now(timezone.utc).isoformat() + "Z"
                 c.execute("""
                     INSERT INTO chain_anchors
                     (anchor_id, memory_id, entry_id, anchor_type, anchored_at)

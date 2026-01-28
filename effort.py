@@ -24,7 +24,7 @@ import json
 import hashlib
 import uuid
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any, Tuple
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -62,7 +62,7 @@ class Signal:
     signal_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     signal_type: SignalType = SignalType.TEXT_EDIT
     content: str = ""
-    timestamp: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat() + "Z")
     metadata: Dict[str, Any] = field(default_factory=dict)
     content_hash: str = ""
 
@@ -118,7 +118,7 @@ class ValidationResult:
     dissent_notes: str = ""  # Any conflicting signals
     validator_id: str = ""  # Model identifier
     validator_version: str = ""  # Model version
-    validation_time: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    validation_time: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat() + "Z")
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -136,7 +136,7 @@ class EffortReceipt:
     signal_hashes: List[str] = field(default_factory=list)
     effort_summary: str = ""
     validation: ValidationResult = None
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat() + "Z")
     signature: str = ""  # Ed25519 signature
     ledger_entry_id: str = ""  # NatLangChain entry ID
     ledger_proof: Dict[str, Any] = field(default_factory=dict)
@@ -255,7 +255,7 @@ class EffortObserver:
             raise RuntimeError("Observation already active. Stop current segment first.")
 
         segment = EffortSegment(
-            start_time=datetime.utcnow().isoformat() + "Z",
+            start_time=datetime.now(timezone.utc).isoformat() + "Z",
             boundary_reason=f"start: {reason}"
         )
         self._current_segment = segment
@@ -288,7 +288,7 @@ class EffortObserver:
 
         segment = self._current_segment
         segment.signals = self._signals
-        segment.end_time = datetime.utcnow().isoformat() + "Z"
+        segment.end_time = datetime.now(timezone.utc).isoformat() + "Z"
         segment.boundary_reason = f"{segment.boundary_reason}; end: {reason}"
 
         # Persist segment end

@@ -11,7 +11,7 @@ import hashlib
 import json
 import os
 import base64
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 from nacl.signing import SigningKey, VerifyKey
@@ -83,7 +83,7 @@ def generate_existence_commitment(memory_id: str) -> dict:
         "content_hash": content_hash,  # SHA256 of plaintext
         "timestamp_commitment": timestamp_commitment,
         "classification": classification,
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
         "verification_hint": "Verify with original memory_id, created_at timestamp"
     }
 
@@ -184,7 +184,7 @@ def generate_content_proof(memory_id: str, content_hash_claim: str) -> dict:
         "claimed_hash": content_hash_claim,
         "matches": matches,
         "classification": classification,
-        "generated_at": datetime.utcnow().isoformat() + "Z"
+        "generated_at": datetime.now(timezone.utc).isoformat() + "Z"
     }
 
     # Sign the proof
@@ -241,7 +241,7 @@ def generate_time_bound_proof(memory_id: str, before_timestamp: str) -> dict:
         "before_timestamp": before_timestamp,
         "existed_before": existed_before,
         "classification": classification,
-        "generated_at": datetime.utcnow().isoformat() + "Z"
+        "generated_at": datetime.now(timezone.utc).isoformat() + "Z"
     }
 
     # Create verifiable hash
@@ -296,7 +296,7 @@ def generate_signed_attestation(
         "content_hash": content_hash,
         "classification": classification,
         "statement": statement,
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
         "signer_public_key": base64.b64encode(signing_key.verify_key.encode()).decode()
     }
 

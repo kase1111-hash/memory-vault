@@ -2,6 +2,7 @@
 
 import os
 import hashlib
+import json
 import re
 from nacl.secret import SecretBox
 from nacl.utils import random
@@ -200,13 +201,12 @@ def tpm_generate_sealed_key() -> bytes:
 
             esys.FlushContext(session)
 
-            # Serialize and return
+            # Serialize and return using JSON with base64 encoding (avoiding pickle for security)
             sealed_blob = {
-                "private": private.marshal(),
-                "public": public.marshal(),
+                "private": base64.b64encode(private.marshal()).decode('ascii'),
+                "public": base64.b64encode(public.marshal()).decode('ascii'),
             }
-            import pickle
-            return pickle.dumps(sealed_blob)
+            return json.dumps(sealed_blob).encode('utf-8')
 
     except Exception as e:
         raise RuntimeError(f"TPM key sealing failed: {e}")
@@ -222,10 +222,11 @@ def tpm_unseal_key(sealed_blob: bytes) -> bytes:
 
     try:
         from tpm2_pytss import ESAPI, TPM2_ALG, ESYS_TR
-        import pickle
 
-        # Deserialize blob
-        blob_data = pickle.loads(sealed_blob)
+        # Deserialize blob using JSON (secure alternative to pickle)
+        blob_data = json.loads(sealed_blob.decode('utf-8'))
+        blob_data["private"] = base64.b64decode(blob_data["private"])
+        blob_data["public"] = base64.b64decode(blob_data["public"])
 
         with ESAPI() as esys:
             # Load the sealed object
