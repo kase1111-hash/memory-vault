@@ -10,6 +10,7 @@ from nacl.pwhash import argon2id
 from nacl.pwhash.argon2id import SALTBYTES, OPSLIMIT_SENSITIVE, MEMLIMIT_SENSITIVE
 from nacl.signing import SigningKey, VerifyKey
 from nacl.encoding import RawEncoder
+import nacl.exceptions
 import base64
 
 # Constants
@@ -114,7 +115,7 @@ def tpm_create_and_persist_primary() -> None:
                 esys.ReadPublic(TPM_PRIMARY_HANDLE)
                 # Already exists
                 return
-            except:
+            except Exception:
                 pass  # Doesn't exist, create it
 
             # Create primary key with platform hierarchy
@@ -369,5 +370,5 @@ def verify_signature(vk: VerifyKey, signature_b64: str, root_hash: str, seq: int
         message = f"{seq}|{root_hash}|{timestamp}".encode()
         vk.verify(message, sig)
         return True
-    except:
+    except (ValueError, TypeError, nacl.exceptions.BadSignatureError):
         return False
