@@ -3,15 +3,12 @@
 import sqlite3
 import json
 import os
-import getpass
 from datetime import datetime, timedelta, timezone
 from typing import List
 
 from nacl.public import SealedBox
-from nacl.encoding import Base64Encoder
 import base64
 
-from memory_vault.crypto import derive_key_from_passphrase, encrypt_memory
 from memory_vault.physical_token import require_physical_token
 
 DB_PATH = os.path.expanduser("~/.memory_vault/vault.db")
@@ -100,7 +97,7 @@ def arm_deadman_switch(deadline_days: int, memory_ids: list[str], justification:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''
-        UPDATE deadman_switch SET 
+        UPDATE deadman_switch SET
             armed = 1,
             deadline = ?,
             last_checkin = ?,
@@ -111,7 +108,7 @@ def arm_deadman_switch(deadline_days: int, memory_ids: list[str], justification:
     conn.commit()
     conn.close()
 
-    print(f"Dead-man switch ARMED")
+    print("Dead-man switch ARMED")
     print(f"Deadline: {deadline.split('T')[0]}")
     print(f"Payload: {len(memory_ids)} memories")
     print("Run 'dms-encrypt-payload' to encrypt for heirs")
@@ -219,7 +216,7 @@ def get_heir_release_packages() -> list[dict]:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''
-        SELECT name, public_key_b64, encrypted_payload, memory_ids 
+        SELECT name, public_key_b64, encrypted_payload, memory_ids
         FROM dms_heirs WHERE encrypted_payload IS NOT NULL
     ''')
     packages = []

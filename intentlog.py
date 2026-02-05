@@ -8,8 +8,7 @@ the relationship between memories and the intents that created/used them.
 
 import sqlite3
 import json
-from typing import List, Optional
-from datetime import datetime
+from typing import List
 
 from .db import DB_PATH
 

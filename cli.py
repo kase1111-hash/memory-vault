@@ -4,7 +4,6 @@ import json
 import sys
 import os
 import getpass
-import uuid
 from datetime import datetime
 
 import sqlite3
@@ -12,7 +11,6 @@ import sqlite3
 from memory_vault.vault import MemoryVault
 from memory_vault.models import MemoryObject
 from memory_vault.db import search_memories_metadata, search_recall_justifications
-from memory_vault.crypto import derive_key_from_passphrase, encrypt_memory, decrypt_memory
 from memory_vault.deadman import (
     init_deadman_switch,
     arm_deadman_switch,
@@ -40,7 +38,7 @@ def main():
     p_create.add_argument("--generate-keyfile", action="store_true")
     p_create.add_argument("--exportable", action="store_true")
 
-    p_list = subparsers.add_parser("list-profiles", help="List profiles")
+    subparsers.add_parser("list-profiles", help="List profiles")
 
     # --- Memory Operations ---
     p_store = subparsers.add_parser("store", help="Store memory")
@@ -71,7 +69,7 @@ def main():
     p_backup.add_argument("--description", default="")
     p_backup.add_argument("--passphrase-file")
 
-    p_list_backups = subparsers.add_parser("list-backups", help="List backup history")
+    subparsers.add_parser("list-backups", help="List backup history")
 
     # --- Integrity ---
     p_verify = subparsers.add_parser("verify-integrity", help="Verify audit trail")
@@ -83,35 +81,35 @@ def main():
     p_dms_arm.add_argument("--memory-ids", required=True, help="Comma-separated memory IDs")
     p_dms_arm.add_argument("--justification", required=True)
 
-    p_dms_checkin = subparsers.add_parser("dms-checkin", help="Check in (prove aliveness)")
+    subparsers.add_parser("dms-checkin", help="Check in (prove aliveness)")
 
-    p_dms_status = subparsers.add_parser("dms-status", help="Show DMS status")
+    subparsers.add_parser("dms-status", help="Show DMS status")
 
-    p_dms_disarm = subparsers.add_parser("dms-disarm", help="Disarm dead-man switch")
+    subparsers.add_parser("dms-disarm", help="Disarm dead-man switch")
 
     p_dms_heir_add = subparsers.add_parser("dms-heir-add", help="Add heir (public key)")
     p_dms_heir_add.add_argument("name")
     p_dms_heir_add.add_argument("public_key_b64")
 
-    p_dms_heir_list = subparsers.add_parser("dms-heir-list", help="List heirs")
+    subparsers.add_parser("dms-heir-list", help="List heirs")
 
-    p_dms_encrypt = subparsers.add_parser("dms-encrypt-payload", help="Encrypt payload for heirs")
+    subparsers.add_parser("dms-encrypt-payload", help="Encrypt payload for heirs")
 
-    p_dms_release = subparsers.add_parser("dms-release-packages", help="Export release packages (triggered)")
+    subparsers.add_parser("dms-release-packages", help="Export release packages (triggered)")
 
     # --- Ephemeral Purge ---
     p_purge = subparsers.add_parser("purge-ephemeral", help="Purge old Level 0 ephemeral memories")
     p_purge.add_argument("--max-age-hours", type=int, default=24, help="Max age in hours (default 24)")
 
-    p_ephemeral_status = subparsers.add_parser("ephemeral-status", help="Show ephemeral memory statistics")
+    subparsers.add_parser("ephemeral-status", help="Show ephemeral memory statistics")
 
     # --- Lockdown Mode ---
     p_lockdown = subparsers.add_parser("lockdown", help="Enter vault lockdown (disable ALL recalls)")
     p_lockdown.add_argument("reason", help="Reason for lockdown")
 
-    p_unlock = subparsers.add_parser("unlock", help="Exit vault lockdown")
+    subparsers.add_parser("unlock", help="Exit vault lockdown")
 
-    p_lockdown_status = subparsers.add_parser("lockdown-status", help="Show lockdown status")
+    subparsers.add_parser("lockdown-status", help="Show lockdown status")
 
     # --- Key Rotation ---
     p_rotate = subparsers.add_parser("rotate-key", help="Rotate encryption key for a profile")
@@ -122,7 +120,7 @@ def main():
     p_tombstone.add_argument("memory_id", help="Memory to tombstone")
     p_tombstone.add_argument("--reason", required=True, help="Reason for tombstoning")
 
-    p_tombstone_list = subparsers.add_parser("tombstone-list", help="List all tombstoned memories")
+    subparsers.add_parser("tombstone-list", help="List all tombstoned memories")
 
     p_tombstone_check = subparsers.add_parser("tombstone-check", help="Check if a memory is tombstoned")
     p_tombstone_check.add_argument("memory_id", help="Memory to check")
@@ -188,7 +186,7 @@ def main():
     p_chain_history = subparsers.add_parser("chain-history", help="Get NatLangChain history for a memory")
     p_chain_history.add_argument("memory_id")
 
-    p_chain_status = subparsers.add_parser("chain-status", help="Check NatLangChain connection status")
+    subparsers.add_parser("chain-status", help="Check NatLangChain connection status")
 
     # --- Effort Tracking (MP-02) ---
     p_effort_start = subparsers.add_parser("effort-start", help="Start effort observation segment")
@@ -208,7 +206,7 @@ def main():
     p_effort_marker = subparsers.add_parser("effort-marker", help="Add explicit boundary marker")
     p_effort_marker.add_argument("description")
 
-    p_effort_status = subparsers.add_parser("effort-status", help="Show current effort observation status")
+    subparsers.add_parser("effort-status", help="Show current effort observation status")
 
     p_effort_validate = subparsers.add_parser("effort-validate", help="Validate an effort segment")
     p_effort_validate.add_argument("segment_id")
@@ -222,15 +220,15 @@ def main():
     p_effort_link.add_argument("receipt_id")
     p_effort_link.add_argument("memory_id")
 
-    p_effort_pending = subparsers.add_parser("effort-pending", help="List pending (unvalidated) segments")
+    subparsers.add_parser("effort-pending", help="List pending (unvalidated) segments")
 
     p_effort_get = subparsers.add_parser("effort-get", help="Get effort receipts for a memory")
     p_effort_get.add_argument("memory_id")
 
     # --- Agent-OS Governance ---
-    p_governance = subparsers.add_parser("governance-status", help="Show governance summary")
+    subparsers.add_parser("governance-status", help="Show governance summary")
 
-    p_boundary = subparsers.add_parser("boundary-status", help="Show Agent-OS boundary daemon status")
+    subparsers.add_parser("boundary-status", help="Show Agent-OS boundary daemon status")
 
     p_governance_check = subparsers.add_parser("governance-check", help="Check governance permission")
     p_governance_check.add_argument("agent_id")
@@ -243,7 +241,7 @@ def main():
 
     def get_passphrase(prompt="Passphrase: "):
         if getattr(args, "passphrase_file", None):
-            with open(args.passphrase_file, "r") as f:
+            with open(args.passphrase_file) as f:
                 return f.read().strip()
         return getpass.getpass(prompt)
 
@@ -534,7 +532,7 @@ def main():
     elif args.command == "zk-verify":
         from memory_vault.zkproofs import verify_existence_commitment
         try:
-            with open(args.commitment_file, "r") as f:
+            with open(args.commitment_file) as f:
                 commitment = json.load(f)
             is_valid, message = verify_existence_commitment(
                 commitment, args.memory_id, args.created_at
@@ -641,7 +639,7 @@ def main():
         try:
             entry_id = vault.anchor_to_chain(args.memory_id, author=args.author)
             if entry_id:
-                print(f"\n✓ Memory anchored to NatLangChain")
+                print("\n✓ Memory anchored to NatLangChain")
                 print(f"  Entry ID: {entry_id}\n")
             else:
                 print("\n✗ Failed to anchor memory\n")
@@ -709,7 +707,7 @@ def main():
         try:
             observer = EffortObserver()
             segment_id = observer.start_observation(reason=args.reason)
-            print(f"\n✓ Effort observation started")
+            print("\n✓ Effort observation started")
             print(f"  Segment ID: {segment_id}\n")
         except Exception as e:
             print(f"Start failed: {e}")
@@ -721,7 +719,7 @@ def main():
             observer = EffortObserver()
             segment = observer.stop_observation(reason=args.reason)
             if segment:
-                print(f"\n✓ Effort observation stopped")
+                print("\n✓ Effort observation stopped")
                 print(f"  Segment ID: {segment.segment_id}")
                 print(f"  Signals: {segment.signal_count()}")
                 print(f"  Duration: {segment.duration_seconds():.1f}s\n")
@@ -766,7 +764,7 @@ def main():
         observer = EffortObserver()
         print("\n=== Effort Observation Status ===\n")
         if observer.is_observing():
-            print(f"✓ Observing")
+            print("✓ Observing")
             print(f"  Segment: {observer.current_segment_id()}")
         else:
             print("○ Not currently observing")
@@ -821,7 +819,7 @@ def main():
                 anchor_to_chain=not args.no_anchor
             )
 
-            print(f"\n=== MP-02 Effort Receipt Generated ===\n")
+            print("\n=== MP-02 Effort Receipt Generated ===\n")
             print(f"Receipt ID: {receipt.receipt_id}")
             print(f"Segment ID: {receipt.segment_id}")
             print(f"Time Bounds: {receipt.time_bounds_start} to {receipt.time_bounds_end}")
@@ -906,7 +904,7 @@ def main():
             permitted, reason = vault.check_governance_permission(
                 args.agent_id, args.action, args.memory_id
             )
-            print(f"\n=== Governance Permission Check ===\n")
+            print("\n=== Governance Permission Check ===\n")
             print(f"Agent: {args.agent_id}")
             print(f"Action: {args.action}")
             print(f"Resource: {args.memory_id}")

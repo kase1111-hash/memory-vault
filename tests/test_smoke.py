@@ -12,15 +12,15 @@ These tests verify that the basic operations work correctly:
 import os
 import sys
 import json
-import tempfile
 import pytest
+from nacl.exceptions import CryptoError as NaClCryptoError
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from vault import MemoryVault
-from models import MemoryObject, EncryptionProfile
-from db import init_db, get_connection
+from models import MemoryObject
+from db import init_db
 from crypto import derive_key_from_passphrase, encrypt_memory, decrypt_memory
 
 
@@ -114,7 +114,7 @@ class TestCryptography:
 
         ciphertext, nonce = encrypt_memory(key1, sample_content)
 
-        with pytest.raises(Exception):  # nacl.exceptions.CryptoError
+        with pytest.raises(NaClCryptoError):
             decrypt_memory(key2, ciphertext, nonce)
 
 

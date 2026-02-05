@@ -1,15 +1,14 @@
 # memory_vault/crypto.py
 
 import os
-import hashlib
 import json
+import logging
 import re
 from nacl.secret import SecretBox
 from nacl.utils import random
 from nacl.pwhash import argon2id
 from nacl.pwhash.argon2id import SALTBYTES, OPSLIMIT_SENSITIVE, MEMLIMIT_SENSITIVE
 from nacl.signing import SigningKey, VerifyKey
-from nacl.encoding import RawEncoder
 import nacl.exceptions
 import base64
 
@@ -19,6 +18,8 @@ NONCE_SIZE = SecretBox.NONCE_SIZE      # 24 bytes
 
 # Security: Profile ID validation pattern to prevent path traversal
 PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
+
+logger = logging.getLogger(__name__)
 
 def _validate_profile_id(profile_id: str) -> None:
     """Validate profile_id to prevent path traversal attacks."""
@@ -33,7 +34,7 @@ TPM_SIGNING_HANDLE = 0x81000002
 
 # TPM availability flag
 try:
-    from tpm2_pytss import ESAPI, ESYS_TR
+    from tpm2_pytss import ESAPI, ESYS_TR  # noqa: F401
     TPM_AVAILABLE = True
 except ImportError:
     TPM_AVAILABLE = False
@@ -107,7 +108,7 @@ def tpm_create_and_persist_primary() -> None:
 
     try:
         from tpm2_pytss import ESAPI, TPM2_ALG, ESYS_TR
-        from tpm2_pytss.types import TPMT_PUBLIC, TPMS_PCR_SELECTION
+        from tpm2_pytss.types import TPMT_PUBLIC
 
         with ESAPI() as esys:
             # Check if primary already exists
@@ -116,7 +117,7 @@ def tpm_create_and_persist_primary() -> None:
                 # Already exists
                 return
             except Exception:
-                pass  # Doesn't exist, create it
+                logger.debug("TPM primary handle does not exist, will create it")
 
             # Create primary key with platform hierarchy
             in_public = TPMT_PUBLIC(
@@ -210,7 +211,7 @@ def tpm_generate_sealed_key() -> bytes:
             return json.dumps(sealed_blob).encode('utf-8')
 
     except Exception as e:
-        raise RuntimeError(f"TPM key sealing failed: {e}")
+        raise RuntimeError(f"TPM key sealing failed: {e}") from e
 
 
 def tpm_unseal_key(sealed_blob: bytes) -> bytes:
@@ -259,7 +260,7 @@ def tpm_unseal_key(sealed_blob: bytes) -> bytes:
             return bytes(unsealed)
 
     except Exception as e:
-        raise RuntimeError(f"TPM unsealing failed (PCR mismatch or tamper): {e}")
+        raise RuntimeError(f"TPM unsealing failed (PCR mismatch or tamper): {e}") from e
 
 
 # === Optional TPM-Sealed Signing Key ===

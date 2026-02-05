@@ -9,14 +9,11 @@ Uses commitment schemes and Merkle proofs for cryptographic verification.
 import sqlite3
 import hashlib
 import json
-import os
 import base64
 from datetime import datetime, timezone
-from typing import Optional, Tuple
+from typing import Tuple
 
 from nacl.signing import SigningKey, VerifyKey
-from nacl.hash import sha256
-from nacl.encoding import RawEncoder
 
 from .db import DB_PATH
 
@@ -301,7 +298,7 @@ def generate_signed_attestation(
     }
 
     # Create message to sign
-    message = json.dumps({k: v for k, v in attestation.items()}, sort_keys=True).encode()
+    message = json.dumps(dict(attestation.items()), sort_keys=True).encode()
 
     # Sign the attestation
     signed = signing_key.sign(message)

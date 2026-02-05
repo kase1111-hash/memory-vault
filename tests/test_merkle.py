@@ -3,7 +3,6 @@ Tests for Merkle tree operations.
 """
 import os
 import sys
-import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

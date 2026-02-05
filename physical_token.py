@@ -7,7 +7,6 @@ import struct
 import time
 import logging
 import warnings
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +47,9 @@ def require_physical_token(justification: str = "") -> bool:
     Returns:
         bool: True if token authenticated successfully
     """
-    print(f"\n[Level 5 Security Gate]")
+    print("\n[Level 5 Security Gate]")
     print(f"Physical security token required: {justification}")
-    print(f"Insert token and touch button if needed...")
+    print("Insert token and touch button if needed...")
 
     # Try FIDO2 first (most secure)
     if FIDO2_AVAILABLE and _fido2_challenge():
@@ -90,7 +89,7 @@ def _fido2_challenge() -> bool:
 
         # Create a simple challenge
         rp = PublicKeyCredentialRpEntity("memory-vault.local", "Memory Vault")
-        server = Fido2Server(rp)
+        _server = Fido2Server(rp)
 
         # For simplicity, just verify presence (not full authentication)
         # In production, you'd do proper credential management
@@ -114,7 +113,7 @@ def _fido2_challenge() -> bool:
             logger.warning(f"FIDO2 assertion failed (no registered credential?): {e}")
             return False
 
-    except (ImportError, OSError, IOError) as e:
+    except (ImportError, OSError) as e:
         # Silently fail to try next method
         logger.debug(f"FIDO2 challenge failed: {e}")
         return False
@@ -143,7 +142,7 @@ def _hmac_challenge_response() -> bool:
         challenge = struct.pack(">Q", timestamp)
 
         # Expected response
-        expected = hmac.new(secret, challenge, hashlib.sha1).digest()[:10]
+        _expected = hmac.new(secret, challenge, hashlib.sha1).digest()[:10]
 
         print("Touch your YubiKey when ready...")
         time.sleep(1)  # Give user time to prepare
@@ -164,7 +163,8 @@ def _hmac_challenge_response() -> bool:
             "HMAC challenge-response is not fully implemented. "
             "Secret file presence check only - no actual hardware verification. "
             "Use FIDO2 or TOTP for proper Level 5 security.",
-            UserWarning
+            UserWarning,
+            stacklevel=2
         )
         logger.warning(
             "HMAC authentication used without hardware verification - "
@@ -172,7 +172,7 @@ def _hmac_challenge_response() -> bool:
         )
         return True
 
-    except (IOError, OSError) as e:
+    except OSError as e:
         logger.debug(f"HMAC challenge failed: {e}")
         return False
 
@@ -189,7 +189,7 @@ def _otp_challenge() -> bool:
         return False
 
     try:
-        with open(TOTP_SECRET_PATH, "r") as f:
+        with open(TOTP_SECRET_PATH) as f:
             secret = f.read().strip()
 
         totp = pyotp.TOTP(secret)
@@ -207,7 +207,7 @@ def _otp_challenge() -> bool:
 
         return is_valid
 
-    except (IOError, OSError, ValueError) as e:
+    except (OSError, ValueError) as e:
         logger.debug(f"TOTP challenge failed: {e}")
         return False
 
@@ -236,7 +236,7 @@ def setup_totp_token() -> str:
     uri = totp.provisioning_uri(name="Memory Vault", issuer_name="Memory Vault Level 5")
 
     print(f"TOTP secret saved to {TOTP_SECRET_PATH}")
-    print(f"\nProvisioning URI (scan as QR code):")
+    print("\nProvisioning URI (scan as QR code):")
     print(uri)
     print(f"\nManual entry secret: {secret}")
 
@@ -265,8 +265,8 @@ def setup_hmac_token(secret: bytes = None) -> str:
         f.write(secret)
 
     print(f"HMAC challenge secret saved to {TOKEN_CHALLENGE_PATH}")
-    print(f"Configure your YubiKey with this secret using:")
-    print(f"  ykman oath accounts add memory-vault-level5")
+    print("Configure your YubiKey with this secret using:")
+    print("  ykman oath accounts add memory-vault-level5")
 
     return TOKEN_CHALLENGE_PATH
 
@@ -297,7 +297,7 @@ def check_token_availability() -> dict:
         try:
             devices = list(CtapHidDevice.list_devices())
             status["fido2"]["devices"] = len(devices)
-        except (OSError, IOError):
+        except OSError:
             # FIDO2 device enumeration failed, leave devices count at 0
             pass
 

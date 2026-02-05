@@ -125,27 +125,27 @@ class BoundaryClient:
 
                 raise BoundaryError("Empty response from boundary daemon")
 
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             raise BoundaryConnectionError(
                 "Boundary daemon socket not found (offline/airgap mode?)",
                 socket_path=self.socket_path
-            )
-        except ConnectionRefusedError:
+            ) from e
+        except ConnectionRefusedError as e:
             raise BoundaryConnectionError(
                 "Boundary daemon not running",
                 socket_path=self.socket_path
-            )
-        except socket.timeout:
+            ) from e
+        except socket.timeout as e:
             raise BoundaryTimeoutError(
                 "Boundary daemon did not respond in time",
                 metadata={"timeout": self.timeout}
-            )
+            ) from e
         except OSError as e:
             raise BoundaryConnectionError(
                 f"Socket error: {e}",
                 socket_path=self.socket_path,
                 cause=e
-            )
+            ) from e
 
     def check_recall(
         self,

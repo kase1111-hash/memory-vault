@@ -23,9 +23,8 @@ import sqlite3
 import json
 import hashlib
 import uuid
-import os
-from datetime import datetime, timedelta, timezone
-from typing import List, Optional, Dict, Any, Tuple
+from datetime import datetime, timezone
+from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
@@ -465,7 +464,7 @@ class EffortValidator:
         # Heuristic validation (no LLM dependency)
         signal_count = len(segment.signals)
         duration = segment.duration_seconds()
-        signal_types = set(s.signal_type for s in segment.signals)
+        signal_types = {s.signal_type for s in segment.signals}
 
         # Coherence: More diverse signal types = more coherent effort
         type_diversity = len(signal_types) / len(SignalType)
