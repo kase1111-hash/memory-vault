@@ -10,7 +10,10 @@ import sqlite3
 import json
 from typing import List
 
-from .db import DB_PATH
+try:
+    from .db import DB_PATH
+except ImportError:
+    from db import DB_PATH
 
 
 def link_intent(memory_id: str, intent_id: str) -> bool:

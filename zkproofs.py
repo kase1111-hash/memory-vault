@@ -15,7 +15,10 @@ from typing import Tuple
 
 from nacl.signing import SigningKey, VerifyKey
 
-from .db import DB_PATH
+try:
+    from .db import DB_PATH
+except ImportError:
+    from db import DB_PATH
 
 
 def _double_sha256(data: bytes) -> str:

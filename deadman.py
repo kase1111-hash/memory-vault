@@ -9,7 +9,10 @@ from typing import List
 from nacl.public import SealedBox
 import base64
 
-from memory_vault.physical_token import require_physical_token
+try:
+    from memory_vault.physical_token import require_physical_token
+except ImportError:
+    from physical_token import require_physical_token
 
 DB_PATH = os.path.expanduser("~/.memory_vault/vault.db")
 DMS_CONFIG_PATH = os.path.expanduser("~/.memory_vault/deadman_config.json")

@@ -26,8 +26,12 @@ from typing import List, Tuple
 
 from nacl.public import SealedBox, PublicKey
 
-from .db import DB_PATH
-from .crypto import derive_key_from_passphrase
+try:
+    from .db import DB_PATH
+    from .crypto import derive_key_from_passphrase
+except ImportError:
+    from db import DB_PATH
+    from crypto import derive_key_from_passphrase
 
 # Security: Profile ID validation pattern to prevent path traversal
 _PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
@@ -43,7 +47,8 @@ def _validate_profile_id(profile_id: str) -> None:
 # Shamir's Secret Sharing implementation
 # Using finite field arithmetic over GF(256)
 
-# Irreducible polynomial for GF(256): x^8 + x^4 + x^3 + x + 1 = 0x11B
+# Irreducible polynomial for GF(256): x^8 + x^4 + x^3 + x^2 + 1 = 0x11D
+# Generator 2 is a primitive root for this polynomial (order 255).
 _GF256_EXP = [0] * 512
 _GF256_LOG = [0] * 256
 
@@ -56,7 +61,7 @@ def _init_gf256_tables():
         _GF256_LOG[x] = i
         x <<= 1
         if x & 0x100:
-            x ^= 0x11B
+            x ^= 0x11D
     for i in range(255, 512):
         _GF256_EXP[i] = _GF256_EXP[i - 255]
 
