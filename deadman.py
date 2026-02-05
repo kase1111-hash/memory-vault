@@ -11,10 +11,10 @@ import base64
 
 try:
     from memory_vault.physical_token import require_physical_token
+    from memory_vault.db import DB_PATH
 except ImportError:
     from physical_token import require_physical_token
-
-DB_PATH = os.path.expanduser("~/.memory_vault/vault.db")
+    from db import DB_PATH
 DMS_CONFIG_PATH = os.path.expanduser("~/.memory_vault/deadman_config.json")
 
 

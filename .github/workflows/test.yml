@@ -31,13 +31,11 @@ jobs:
 
       - name: Check for security issues in code
         run: ruff check --select=S .
-        continue-on-error: true  # Advisory for now
 
       - name: Audit dependencies
         run: |
           pip install pynacl
           pip-audit
-        continue-on-error: true  # Advisory for now
 
       - name: Verify syntax
         run: |
