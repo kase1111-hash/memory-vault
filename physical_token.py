@@ -102,17 +102,17 @@ def _fido2_challenge() -> bool:
         # Create a dummy challenge for presence verification
         challenge = os.urandom(32)
 
-        # This will fail gracefully if no credential exists
-        # In a real implementation, you'd register credentials first
+        # Attempt FIDO2 assertion — requires registered credentials.
+        # Without registered credentials, this will fail and correctly
+        # return False. Use setup/registration flow to enroll a device
+        # before relying on FIDO2 for Level 5 authentication.
         try:
-            # Attempt to get assertion (will require touch)
             options = {"challenge": challenge, "rpId": "memory-vault.local", "allowCredentials": []}
             client.get_assertion(options)
             return True
-        except (KeyError, ValueError, RuntimeError):
-            # If no credential, just verify device presence
-            # Most FIDO2 devices will blink/require touch
-            return True
+        except (KeyError, ValueError, RuntimeError) as e:
+            logger.warning(f"FIDO2 assertion failed (no registered credential?): {e}")
+            return False
 
     except (ImportError, OSError, IOError) as e:
         # Silently fail to try next method
