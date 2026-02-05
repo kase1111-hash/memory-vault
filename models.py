@@ -12,8 +12,8 @@ class MemoryObject:
     content_plaintext: bytes = b""  # Only in-memory, never stored
     content_hash: str = ""
     intent_ref: str = None
-    value_metadata: dict = field(default_factory=dict)
-    access_policy: dict = field(default_factory=lambda: {"recall_conditions": [], "cooldown_seconds": 0})
+    value_metadata: dict = None
+    access_policy: dict = None
     audit_proof: str = None  # Future Merkle ref
 
 @dataclass

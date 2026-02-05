@@ -2,11 +2,13 @@
 
 import hashlib
 import json
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union
 
-def hash_leaf(data: str) -> str:
+def hash_leaf(data: Union[bytes, str]) -> str:
     """Double SHA256 for Merkle leaf (Bitcoin-style)."""
-    h = hashlib.sha256(data.encode()).digest()
+    if isinstance(data, str):
+        data = data.encode()
+    h = hashlib.sha256(data).digest()
     return hashlib.sha256(h).hexdigest()
 
 def hash_node(left: str, right: str) -> str:
@@ -14,46 +16,59 @@ def hash_node(left: str, right: str) -> str:
     data = left + right
     return hashlib.sha256(hashlib.sha256(data.encode()).digest()).hexdigest()
 
-def build_tree(leaves: List[str]) -> Tuple[str, List[List[str]]]:
+def build_tree(leaves: List[str]) -> Tuple[Optional[str], dict]:
     """
-    Build Merkle tree and return (root, proof_map)
-    proof_map[i] = list of sibling hashes needed to prove leaf i
+    Build Merkle tree and return (root, proof_map).
+    proof_map[i] = list of sibling hashes needed to verify leaf i against the root.
     """
     if not leaves:
-        return hash_leaf(""), []
+        return None, {}
 
     n = len(leaves)
-    tree = leaves[:]
-    proofs = [[] for _ in leaves]
+    if n == 1:
+        return leaves[0], {0: []}
 
-    # Bottom-up construction
-    level = 0
-    while n > 1:
-        new_level = []
-        new_proofs = [[] for _ in range((n + 1) // 2)]
-        for i in range(0, n, 2):
-            left = tree[i]
-            right = tree[i + 1] if i + 1 < n else left  # Duplicate for odd
-            parent = hash_node(left, right)
-            new_level.append(parent)
+    # Per-original-leaf proof paths
+    proofs = {i: [] for i in range(n)}
+    # Track which original leaf indices each current-level node represents
+    current_level = list(leaves)
+    current_members = [[i] for i in range(n)]
 
-            # Record sibling for proofs
-            if i + 1 < n:
-                proofs[i].append(right)
-                proofs[i + 1].append(left)
+    while len(current_level) > 1:
+        next_level = []
+        next_members = []
+
+        for i in range(0, len(current_level), 2):
+            left = current_level[i]
+            left_members = current_members[i]
+
+            if i + 1 < len(current_level):
+                right = current_level[i + 1]
+                right_members = current_members[i + 1]
             else:
-                proofs[i].append(left)  # Duplicate sibling
+                right = left  # Duplicate for odd count
+                right_members = []
 
-        # Propagate previous proofs up
-        for j, proof_list in enumerate(proofs[:n]):
-            new_proofs[j // 2].extend(proof_list)
+            # Sort children before hashing to match verify_proof's sorted concatenation
+            if int(left, 16) <= int(right, 16):
+                parent = hash_node(left, right)
+            else:
+                parent = hash_node(right, left)
+            next_level.append(parent)
 
-        tree = new_level
-        proofs = new_proofs
-        n = len(tree)
-        level += 1
+            # Each original leaf in the left subtree needs the right sibling
+            for idx in left_members:
+                proofs[idx].append(right)
+            # Each original leaf in the right subtree needs the left sibling
+            for idx in right_members:
+                proofs[idx].append(left)
 
-    return tree[0], proofs
+            next_members.append(left_members + right_members)
+
+        current_level = next_level
+        current_members = next_members
+
+    return current_level[0], proofs
 
 def verify_proof(leaf_hash: str, root_hash: str, proof: List[str]) -> bool:
     """Verify a leaf belongs to the tree using sibling proofs."""
@@ -69,7 +84,7 @@ def rebuild_merkle_tree(conn) -> Tuple[str, dict]:
     c.execute("SELECT leaf_hash FROM merkle_leaves ORDER BY leaf_id")
     leaves = [row[0] for row in c.fetchall()]
     if not leaves:
-        return hash_leaf(""), {}
+        return None, {}
     root, proofs = build_tree(leaves)
     proof_map = {i: proofs[i] for i in range(len(leaves))}
     return root, proof_map
