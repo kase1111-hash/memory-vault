@@ -71,7 +71,7 @@ class MemoryVaultError(Exception):
             "source": {
                 "product": "memory-vault",
                 "host": source_host,
-                "version": "1.1.0"
+                "version": "0.1.0-alpha"
             },
             "action": self.action,
             "outcome": self.outcome,

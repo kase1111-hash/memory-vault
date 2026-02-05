@@ -11,10 +11,10 @@ import base64
 
 try:
     from memory_vault.physical_token import require_physical_token
+    from memory_vault.db import DB_PATH
 except ImportError:
     from physical_token import require_physical_token
-
-DB_PATH = os.path.expanduser("~/.memory_vault/vault.db")
+    from db import DB_PATH
 DMS_CONFIG_PATH = os.path.expanduser("~/.memory_vault/deadman_config.json")
 
 
@@ -82,7 +82,7 @@ def list_heirs() -> List[dict]:
     return heirs
 
 
-def arm_deadman_switch(deadline_days: int, memory_ids: list[str], justification: str) -> None:
+def arm_deadman_switch(deadline_days: int, memory_ids: List[str], justification: str) -> None:
     print(f"\n[DEAD-MAN SWITCH] Arming for {deadline_days} days")
     print("Payload will be releasable to registered heirs if no check-in.")
     confirm = input("Type 'ARM DEADMAN SWITCH' to continue: ")
@@ -94,8 +94,8 @@ def arm_deadman_switch(deadline_days: int, memory_ids: list[str], justification:
         print("Physical token required")
         return
 
-    deadline = (datetime.now(timezone.utc) + timedelta(days=deadline_days)).isoformat() + "Z"
-    checkin = datetime.now(timezone.utc).isoformat() + "Z"
+    deadline = (datetime.now(timezone.utc) + timedelta(days=deadline_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    checkin = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -131,7 +131,7 @@ def checkin_deadman_switch() -> bool:
         conn.close()
         return False
 
-    new_checkin = datetime.now(timezone.utc).isoformat() + "Z"
+    new_checkin = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     c.execute("UPDATE deadman_switch SET last_checkin = ? WHERE id = 1", (new_checkin,))
     conn.commit()
     conn.close()
@@ -153,7 +153,7 @@ def is_deadman_triggered() -> bool:
     return datetime.now(timezone.utc) > deadline
 
 
-def get_payload_memory_ids() -> list[str]:
+def get_payload_memory_ids() -> List[str]:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT payload_memory_ids FROM deadman_switch WHERE id = 1")
@@ -188,7 +188,7 @@ def encrypt_payload_for_heirs(vault) -> None:
 
     payload = {
         "release_trigger": "deadman_switch",
-        "release_date": datetime.now(timezone.utc).isoformat() + "Z",
+        "release_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "memories": plaintext_memories
     }
     payload_json = json.dumps(payload, indent=2).encode()
@@ -214,7 +214,7 @@ def encrypt_payload_for_heirs(vault) -> None:
     print("Payload encryption complete")
 
 
-def get_heir_release_packages() -> list[dict]:
+def get_heir_release_packages() -> List[dict]:
     """Export encrypted packages for delivery"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()

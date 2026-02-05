@@ -2,7 +2,6 @@
 import argparse
 import json
 import sys
-import os
 import getpass
 from datetime import datetime
 
@@ -10,7 +9,7 @@ import sqlite3
 
 from memory_vault.vault import MemoryVault
 from memory_vault.models import MemoryObject
-from memory_vault.db import search_memories_metadata, search_recall_justifications
+from memory_vault.db import DB_PATH, search_memories_metadata, search_recall_justifications
 from memory_vault.deadman import (
     init_deadman_switch,
     arm_deadman_switch,
@@ -24,7 +23,6 @@ from memory_vault.deadman import (
     get_heir_release_packages
 )
 
-DB_PATH = os.path.expanduser("~/.memory_vault/vault.db")
 
 
 def main():

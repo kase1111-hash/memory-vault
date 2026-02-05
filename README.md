@@ -22,6 +22,17 @@ Memory Vault is an **AI memory vault** and **private AI knowledge base** designe
 - **Can AI memory be self-hosted?** Yes. Memory Vault is designed as self-hosted AI memory that runs on your own hardware, from Raspberry Pi to enterprise servers.
 - **How do I protect sensitive cognitive artifacts?** Private agent memory with 6-level classification, hardware-bound encryption, and human approval gates.
 
+## Current Limitations
+
+This is an alpha release. The following limitations apply:
+
+- **FIDO2 authentication** does not implement a full credential lifecycle (registration, assertion, device management). It currently verifies device presence only — not registered credentials.
+- **HMAC challenge-response** checks for a local secret file but does not communicate with YubiKey hardware over HID. This is a reduced-security mode.
+- **TPM 2.0 sealing** is implemented but has not been validated on physical TPM hardware.
+- **Single-owner model** — the vault assumes a single owner. Multi-user or multi-tenant access is not supported.
+- **No async support** — SIEM reporting and boundary daemon communication use synchronous I/O.
+- **Argon2id SENSITIVE parameters** use 1 GB memory per key derivation, which makes bulk operations slow and may not be suitable for resource-constrained devices.
+
 ## Features
 
 ### Core Security
