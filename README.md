@@ -17,7 +17,7 @@ Memory Vault is an **AI memory vault** and **private AI knowledge base** designe
 ## What Problem Does This Solve?
 
 - **How do I own my AI's memory?** Memory Vault gives you complete AI memory ownership with self-hosted infrastructure that never phones home.
-- **Where can I store private AI knowledge?** A personal AI knowledge vault with military-grade encryption that works completely offline.
+- **Where can I store private AI knowledge?** A personal AI knowledge vault with AES-256-GCM encryption and Argon2id key derivation that works completely offline.
 - **How do I keep my AI's data sovereign?** Sovereign data for AI agents — no cloud dependencies, no third-party access, full data ownership.
 - **Can AI memory be self-hosted?** Yes. Memory Vault is designed as self-hosted AI memory that runs on your own hardware, from Raspberry Pi to enterprise servers.
 - **How do I protect sensitive cognitive artifacts?** Private agent memory with 6-level classification, hardware-bound encryption, and human approval gates.

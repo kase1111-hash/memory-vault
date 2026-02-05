@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Memory Vault is a sovereign, offline-capable AI memory storage system with military-grade security. It provides encrypted knowledge storage for AI agents with owner-controlled access, classification-bound permissions, and tamper-evident auditing.
+Memory Vault is a sovereign, offline-capable AI memory storage system with AES-256-GCM encryption and Argon2id key derivation. It provides encrypted knowledge storage for AI agents with owner-controlled access, classification-bound permissions, and tamper-evident auditing.
 
 **Status:** v0.1.0-alpha (Feature Complete)
 **Python:** 3.8+ recommended (3.7 minimum)
