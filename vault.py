@@ -476,7 +476,9 @@ class MemoryVault:
             nonce = row_dict["nonce"]
             salt = row_dict["salt"]
             sealed_blob = row_dict["sealed_blob"]
-            access_policy = json.loads(row_dict["access_policy"] or '{"cooldown_seconds": 0}')
+            access_policy = json.loads(row_dict["access_policy"] or "null")
+            if not access_policy:
+                access_policy = {"cooldown_seconds": 0}
 
             # 1. Boundary check (skip if requested, e.g., for testing)
             if not skip_boundary_check:
