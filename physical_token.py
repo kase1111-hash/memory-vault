@@ -227,8 +227,8 @@ def setup_totp_token() -> str:
     secret = pyotp.random_base32()
 
     os.makedirs(os.path.dirname(TOTP_SECRET_PATH), exist_ok=True)
-    with open(TOTP_SECRET_PATH, "w") as f:
-        os.chmod(TOTP_SECRET_PATH, 0o600)
+    fd = os.open(TOTP_SECRET_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         f.write(secret)
 
     # Generate provisioning URI for QR code
@@ -260,8 +260,8 @@ def setup_hmac_token(secret: bytes = None) -> str:
         raise ValueError("HMAC secret must be exactly 32 bytes")
 
     os.makedirs(os.path.dirname(TOKEN_CHALLENGE_PATH), exist_ok=True)
-    with open(TOKEN_CHALLENGE_PATH, "wb") as f:
-        os.chmod(TOKEN_CHALLENGE_PATH, 0o600)
+    fd = os.open(TOKEN_CHALLENGE_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
         f.write(secret)
 
     print(f"HMAC challenge secret saved to {TOKEN_CHALLENGE_PATH}")
