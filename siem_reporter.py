@@ -21,9 +21,6 @@ import ssl
 
 from errors import (
     MemoryVaultError,
-    Severity,
-    SIEMConnectionError,
-    SIEMReportingError,
 )
 
 
@@ -277,7 +274,7 @@ class SIEMReporter:
                     logger.error(f"Unknown SIEM protocol: {protocol}")
                     return False
 
-            except (urllib.error.URLError, socket.error, OSError) as e:
+            except (urllib.error.URLError, OSError) as e:
                 logger.warning(
                     f"SIEM transmission attempt {attempt + 1}/{self.config.retry_count} "
                     f"failed: {e}"
@@ -306,7 +303,7 @@ class SIEMReporter:
         for event in events:
             data = json.dumps(event).encode("utf-8")
 
-            request = urllib.request.Request(
+            request = urllib.request.Request(  # noqa: S310
                 endpoint,
                 data=data,
                 headers=headers,
@@ -322,7 +319,7 @@ class SIEMReporter:
                 context.verify_mode = ssl.CERT_NONE
 
             try:
-                with urllib.request.urlopen(
+                with urllib.request.urlopen(  # noqa: S310
                     request,
                     timeout=self.config.timeout,
                     context=context

@@ -2,7 +2,6 @@
 
 import sqlite3
 import os
-import json
 
 # Default database path
 DB_PATH = os.path.expanduser("~/.memory_vault/vault.db")
@@ -326,7 +325,7 @@ def init_db(db_path: str = None):
         ("static-keyfile", "AES-256-GCM", "KeyFile", "never", 0),
     ]
     c.executemany('''
-        INSERT OR IGNORE INTO encryption_profiles 
+        INSERT OR IGNORE INTO encryption_profiles
         (profile_id, cipher, key_source, rotation_policy, exportable)
         VALUES (?, ?, ?, ?, ?)
     ''', default_profiles)

@@ -140,7 +140,7 @@ The implementation matches documented purpose across these core dimensions:
 - Memory Vault occupies clear, non-overlapping territory within what appears to be an Agent-OS ecosystem.
 - Integrations (NatLangChain, IntentLog, boundary-daemon, MP-02) are cleanly bounded via optional imports.
 - No dependency conflicts or conceptual overlap with declared integrations.
-- The `KEYWORDS.md` file attempts to claim broad SEO territory that extends well beyond the project's actual scope ("military-grade encryption tool," "HIPAA compliant storage") — these claims are not substantiated by the code.
+- The `KEYWORDS.md` file claims broad SEO territory across 25 repos, extending well beyond this project's scope. The term "military-grade" appeared in `README.md` and `claude.md` (now corrected to specify actual algorithms).
 
 ---
 
@@ -308,7 +308,7 @@ Entry Points:
 - Passphrase is passed as a parameter and not persisted — good.
 - TOTP secrets stored with 0o600 permissions — adequate.
 - Backup files contain encrypted data — good.
-- `KEYWORDS.md` claims "HIPAA compliant" and "military-grade" — these are unsubstantiated and potentially misleading.
+- `README.md` and `claude.md` used "military-grade" — an unsubstantiated marketing term now replaced with specific algorithm names.
 
 **SQL Injection:**
 - All SQL uses parameterized queries throughout — no injection risk identified.
@@ -373,7 +373,7 @@ Entry Points:
 - No inline architecture decision records (ADRs).
 - No API documentation beyond docstrings.
 - AUDIT_REPORT.md exists but is self-referential (the project audits itself).
-- KEYWORDS.md makes unsubstantiated claims ("HIPAA compliant," "SOC 2 ready," "military-grade").
+- KEYWORDS.md makes unsubstantiated claims ("military-grade").
 
 ### Build & Deployment
 
@@ -431,7 +431,7 @@ A new developer would need to:
 |---|---|---|---|
 | PD-01 | Incomplete Claim | `physical_token.py:75-120` | FIDO2 auth claimed as "production" in SPECIFICATION.md but silently bypasses on exception |
 | PD-02 | Incomplete Claim | `physical_token.py:123-177` | HMAC token auth is explicitly a stub, contradicts "production-ready" claim |
-| PD-03 | Unsubstantiated | `KEYWORDS.md` | Claims "HIPAA compliant," "SOC 2 ready," "military-grade" without evidence |
+| PD-03 | Fixed | `README.md`, `claude.md` | "military-grade" replaced with specific algorithm names (AES-256-GCM, Argon2id) |
 | PD-04 | Version Drift | `pyproject.toml` vs `deadman.py` | Declared Python 3.7+ but uses 3.9+ syntax |
 | PD-05 | Status Claim | `errors.py:74` | `version: "1.1.0"` in SIEM events but package is `0.1.0-alpha` |
 
@@ -510,7 +510,7 @@ A new developer would need to:
 
 ### Immediate (Purpose)
 
-1. **Remove or heavily qualify KEYWORDS.md claims** — "HIPAA compliant," "SOC 2 ready," "military-grade" are unsubstantiated and could create legal exposure.
+1. **Remove or heavily qualify KEYWORDS.md claims** — "military-grade" are unsubstantiated and could create legal exposure.
 2. **Add "Limitations" section to README** — Explicitly document that FIDO2, HMAC, and TPM are not production-ready.
 3. **Fix version string in `errors.py:74`** — `"1.1.0"` should match `__version__ = "0.1.0-alpha"`.
 4. **Add Problem Statement to README** — Explain why existing solutions are insufficient.
@@ -550,7 +550,7 @@ A new developer would need to:
 
 2. **Python version:** The declared minimum is 3.7 but `deadman.py` uses `list[str]` (3.9+). What is the actual intended minimum?
 
-3. **KEYWORDS.md claims:** Are "HIPAA compliant" and "SOC 2 ready" aspirational or based on completed compliance work? These carry legal weight.
+3. **KEYWORDS.md scope:** The file covers 25 repos' SEO strategy but lives in this repo — should it be moved to a central location?
 
 4. **Merkle tree contract:** Should `hash_leaf()` accept `str`, `bytes`, or both? Tests pass bytes; the implementation calls `.encode()` (string-only).
 

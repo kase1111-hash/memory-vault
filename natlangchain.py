@@ -93,12 +93,12 @@ class NatLangChainClient:
 
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.ConnectionError:
-            raise ConnectionError(f"Cannot connect to NatLangChain at {self.api_url}")
-        except requests.exceptions.Timeout:
-            raise TimeoutError(f"Request to NatLangChain timed out after {self.timeout}s")
+        except requests.exceptions.ConnectionError as e:
+            raise ConnectionError(f"Cannot connect to NatLangChain at {self.api_url}") from e
+        except requests.exceptions.Timeout as e:
+            raise TimeoutError(f"Request to NatLangChain timed out after {self.timeout}s") from e
         except requests.exceptions.HTTPError as e:
-            raise RuntimeError(f"NatLangChain API error: {e.response.status_code} - {e.response.text}")
+            raise RuntimeError(f"NatLangChain API error: {e.response.status_code} - {e.response.text}") from e
 
     # ==================== Entry Operations ====================
 

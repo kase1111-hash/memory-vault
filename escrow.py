@@ -16,22 +16,22 @@ Use cases:
 """
 
 import sqlite3
-import json
 import os
 import uuid
 import secrets
-import hashlib
 import base64
 import re
 from datetime import datetime, timezone
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 
-from nacl.utils import random as nacl_random
 from nacl.public import SealedBox, PublicKey
-from nacl.encoding import Base64Encoder
 
-from .db import DB_PATH
-from .crypto import derive_key_from_passphrase, encrypt_memory, decrypt_memory
+try:
+    from .db import DB_PATH
+    from .crypto import derive_key_from_passphrase
+except ImportError:
+    from db import DB_PATH
+    from crypto import derive_key_from_passphrase
 
 # Security: Profile ID validation pattern to prevent path traversal
 _PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
@@ -47,7 +47,8 @@ def _validate_profile_id(profile_id: str) -> None:
 # Shamir's Secret Sharing implementation
 # Using finite field arithmetic over GF(256)
 
-# Irreducible polynomial for GF(256): x^8 + x^4 + x^3 + x + 1 = 0x11B
+# Irreducible polynomial for GF(256): x^8 + x^4 + x^3 + x^2 + 1 = 0x11D
+# Generator 2 is a primitive root for this polynomial (order 255).
 _GF256_EXP = [0] * 512
 _GF256_LOG = [0] * 256
 
@@ -60,7 +61,7 @@ def _init_gf256_tables():
         _GF256_LOG[x] = i
         x <<= 1
         if x & 0x100:
-            x ^= 0x11B
+            x ^= 0x11D
     for i in range(255, 512):
         _GF256_EXP[i] = _GF256_EXP[i - 255]
 
@@ -255,7 +256,7 @@ def create_escrow(
     timestamp = datetime.now(timezone.utc).isoformat() + "Z"
 
     # Encrypt each shard for its recipient
-    for i, ((shard_idx, shard_data), (name, pubkey_b64)) in enumerate(zip(shards, recipients)):
+    for _, ((shard_idx, shard_data), (name, pubkey_b64)) in enumerate(zip(shards, recipients)):
         try:
             pubkey_bytes = base64.b64decode(pubkey_b64)
             pubkey = PublicKey(pubkey_bytes)
@@ -273,13 +274,13 @@ def create_escrow(
         except Exception as e:
             conn.rollback()
             conn.close()
-            raise ValueError(f"Failed to encrypt shard for {name}: {e}")
+            raise ValueError(f"Failed to encrypt shard for {name}: {e}") from e
 
     conn.commit()
     conn.close()
 
     print("\n" + "="*50)
-    print(f"KEY ESCROW CREATED")
+    print("KEY ESCROW CREATED")
     print(f"  Escrow ID: {escrow_id}")
     print(f"  Profile: {profile_id}")
     print(f"  Shards: {total_shards}")
@@ -430,7 +431,7 @@ def recover_from_escrow(shards: List[Tuple[int, bytes]]) -> bytes:
         print("Key successfully recovered!")
         return recovered_key
     except Exception as e:
-        raise ValueError(f"Recovery failed: {e}")
+        raise ValueError(f"Recovery failed: {e}") from e
 
 
 def delete_escrow(escrow_id: str) -> bool:

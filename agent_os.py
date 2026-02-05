@@ -27,7 +27,7 @@ import json
 import os
 import hashlib
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Tuple
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 
@@ -254,7 +254,7 @@ class ConstitutionManager:
         """Load a constitution by name."""
         path = os.path.join(self.constitution_dir, f"{name}.md")
         if os.path.exists(path):
-            with open(path, "r") as f:
+            with open(path) as f:
                 return f.read()
         return None
 
@@ -400,7 +400,7 @@ class GovernanceLogger:
             return []
 
         decisions = []
-        with open(self.log_path, "r") as f:
+        with open(self.log_path) as f:
             for line in f:
                 try:
                     data = json.loads(line.strip())
@@ -439,12 +439,12 @@ def check_agent_permission(
     """
     daemon = BoundaryDaemon()
     logger = GovernanceLogger()
-    constitution = ConstitutionManager()
+    _constitution = ConstitutionManager()
 
     # Verify agent identity
     valid, identity = daemon.verify_agent(agent_id)
     if not valid:
-        decision = logger.log_decision(
+        _decision = logger.log_decision(
             agent_id=agent_id,
             action=action,
             resource=resource,
@@ -458,7 +458,7 @@ def check_agent_permission(
 
     # Classification-based mode requirements
     if classification >= 5 and mode != OperationalMode.COLDROOM:
-        decision = logger.log_decision(
+        _decision = logger.log_decision(
             agent_id=agent_id,
             action=action,
             resource=resource,
@@ -469,7 +469,7 @@ def check_agent_permission(
         return False, f"Level 5 requires COLDROOM mode (current: {mode.value})"
 
     if classification >= 4 and mode not in [OperationalMode.AIRGAP, OperationalMode.COLDROOM]:
-        decision = logger.log_decision(
+        _decision = logger.log_decision(
             agent_id=agent_id,
             action=action,
             resource=resource,

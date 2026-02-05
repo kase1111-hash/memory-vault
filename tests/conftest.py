@@ -3,8 +3,6 @@ Pytest configuration and shared fixtures for Memory Vault tests.
 """
 import os
 import sys
-import tempfile
-import shutil
 import pytest
 
 # Add parent directory to path for imports

@@ -1,7 +1,6 @@
 # memory_vault/merkle.py
 
 import hashlib
-import json
 from typing import List, Tuple, Optional, Union
 
 def hash_leaf(data: Union[bytes, str]) -> str:

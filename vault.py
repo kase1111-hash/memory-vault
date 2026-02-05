@@ -9,7 +9,7 @@ import hashlib
 import base64
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 from nacl.utils import random as nacl_random
 
@@ -23,7 +23,7 @@ try:
         load_key_from_file,
         encrypt_memory,
         decrypt_memory,
-        generate_keyfile,
+        generate_keyfile,  # noqa: F401
         load_or_create_signing_key,
         sign_root
     )
@@ -32,30 +32,18 @@ try:
     from .merkle import hash_leaf, build_tree
     from .errors import (
         MemoryVaultError,
-        CryptoError,
         DecryptionError,
-        EncryptionError,
-        KeyDerivationError,
-        AccessError,
         LockdownError,
         TombstoneError,
         CooldownError,
         ApprovalRequiredError,
-        ClassificationError,
         BoundaryDeniedError,
-        DatabaseError,
         MemoryNotFoundError,
-        ProfileNotFoundError,
-        ProfileExistsError,
         ProfileKeyMissingError,
-        IntegrityError,
-        MerkleVerificationError,
-        BackupError,
-        RestoreError,
         PhysicalTokenError,
         Severity,
     )
-    from .siem_reporter import SIEMReporter, SIEMConfig, get_reporter, report_event, report_exception
+    from .siem_reporter import SIEMReporter, SIEMConfig, get_reporter
 except ImportError:
     from models import MemoryObject
     from crypto import (
@@ -63,7 +51,6 @@ except ImportError:
         load_key_from_file,
         encrypt_memory,
         decrypt_memory,
-        generate_keyfile,
         load_or_create_signing_key,
         sign_root
     )
@@ -72,30 +59,18 @@ except ImportError:
     from merkle import hash_leaf, build_tree
     from errors import (
         MemoryVaultError,
-        CryptoError,
         DecryptionError,
-        EncryptionError,
-        KeyDerivationError,
-        AccessError,
         LockdownError,
         TombstoneError,
         CooldownError,
         ApprovalRequiredError,
-        ClassificationError,
         BoundaryDeniedError,
-        DatabaseError,
         MemoryNotFoundError,
-        ProfileNotFoundError,
-        ProfileExistsError,
         ProfileKeyMissingError,
-        IntegrityError,
-        MerkleVerificationError,
-        BackupError,
-        RestoreError,
         PhysicalTokenError,
         Severity,
     )
-    from siem_reporter import SIEMReporter, SIEMConfig, get_reporter, report_event, report_exception
+    from siem_reporter import SIEMReporter, SIEMConfig, get_reporter
 
 
 logger = logging.getLogger(__name__)
@@ -113,10 +88,10 @@ else:
     NATLANGCHAIN_AVAILABLE = True
 
 try:
-    from .agent_os import check_agent_permission, GovernanceLogger, BoundaryDaemon
+    from .agent_os import check_agent_permission, BoundaryDaemon
 except ImportError:
     try:
-        from agent_os import check_agent_permission, GovernanceLogger, BoundaryDaemon
+        from agent_os import check_agent_permission, BoundaryDaemon
         AGENT_OS_AVAILABLE = True
     except ImportError:
         AGENT_OS_AVAILABLE = False
@@ -533,7 +508,7 @@ class MemoryVault:
                     from .physical_token import require_physical_token
                 except ImportError:
                     from physical_token import require_physical_token
-                print(f"\n[Level 5] Physical security token required for recall.")
+                print("\n[Level 5] Physical security token required for recall.")
                 if not require_physical_token(justification):
                     self._log_recall(c, memory_id, requester, False, justification + " | token absent")
                     conn.commit()
@@ -576,7 +551,7 @@ class MemoryVault:
                     cause=e
                 )
                 self._report_exception(exc)
-                raise exc
+                raise exc from e
 
             try:
                 plaintext = decrypt_memory(key, ciphertext, nonce)
@@ -590,7 +565,7 @@ class MemoryVault:
                     cause=e
                 )
                 self._report_exception(exc)
-                raise exc
+                raise exc from e
 
             # 6. Log success + update Merkle tree
             self._log_recall(c, memory_id, requester, True, justification)
@@ -620,7 +595,7 @@ class MemoryVault:
         timestamp = datetime.now(timezone.utc).isoformat()
 
         cursor.execute('''
-            INSERT INTO recall_log 
+            INSERT INTO recall_log
             (request_id, memory_id, requester, timestamp, approved, justification)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', (request_id, memory_id, requester, timestamp, int(approved), justification))
@@ -820,7 +795,7 @@ class MemoryVault:
             passphrase = getpass.getpass("Backup decryption passphrase: ")
 
         # Load backup file
-        with open(backup_file, "r") as f:
+        with open(backup_file) as f:
             backup_container = json.load(f)
 
         # Extract encryption parameters
@@ -834,7 +809,7 @@ class MemoryVault:
         try:
             plaintext = decrypt_memory(key, ciphertext, nonce)
         except Exception as e:
-            raise ValueError("Decryption failed - incorrect passphrase or corrupted backup")
+            raise ValueError("Decryption failed - incorrect passphrase or corrupted backup") from e
 
         backup_data = json.loads(plaintext)
 
@@ -902,7 +877,7 @@ class MemoryVault:
         finally:
             conn.close()
 
-        print(f"\n✓ Restore complete")
+        print("\n✓ Restore complete")
         print(f"  Restored: {restored_count} memories")
         print(f"  Skipped (already exist): {skipped_count} memories")
 
@@ -1032,9 +1007,9 @@ class MemoryVault:
                 proof_valid = verify_proof(leaf_hash, stored_root, audit_proof)
 
                 if proof_valid:
-                    print(f"✓ Memory proof valid (leaf in tree)")
+                    print("✓ Memory proof valid (leaf in tree)")
                 else:
-                    print(f"✗ INTEGRITY FAILURE: Invalid Merkle proof")
+                    print("✗ INTEGRITY FAILURE: Invalid Merkle proof")
                     return False
 
             print("\n" + "="*50)
@@ -1426,7 +1401,7 @@ class MemoryVault:
             success_count = 0
             error_count = 0
 
-            for memory_id, ciphertext, nonce, old_salt, sealed_blob in memories:
+            for memory_id, ciphertext, nonce, old_salt, _sealed_blob in memories:
                 try:
                     # Derive old key
                     if key_source == "HumanPassphrase":
@@ -1499,7 +1474,7 @@ class MemoryVault:
             conn.close()
 
         print("\n" + "="*50)
-        print(f"✓ KEY ROTATION COMPLETE")
+        print("✓ KEY ROTATION COMPLETE")
         print(f"  Memories rotated: {success_count}")
         print(f"  Rotation count: {rotation_count + 1}")
         print("="*50 + "\n")
@@ -1583,7 +1558,7 @@ class MemoryVault:
             conn.commit()
 
             print("\n" + "="*50)
-            print(f"MEMORY TOMBSTONED")
+            print("MEMORY TOMBSTONED")
             print(f"  ID: {memory_id}")
             print(f"  Reason: {reason}")
             print(f"  Timestamp: {timestamp}")
