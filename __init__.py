@@ -169,99 +169,8 @@ except ImportError:
     except ImportError:
         BOUNDARY_AVAILABLE = False
 
-# NatLangChain integration
-try:
-    try:
-        from .natlangchain import (
-            NatLangChainClient,
-            NatLangEntry,
-            ChainProof,
-            anchor_memory_to_chain,
-            anchor_effort_receipt,
-            verify_memory_anchor,
-            get_memory_chain_history,
-        )
-    except ImportError:
-        from natlangchain import (
-            NatLangChainClient,
-            NatLangEntry,
-            ChainProof,
-            anchor_memory_to_chain,
-            anchor_effort_receipt,
-            verify_memory_anchor,
-            get_memory_chain_history,
-        )
-    NATLANGCHAIN_AVAILABLE = True
-except ImportError:
-    NATLANGCHAIN_AVAILABLE = False
 
-# MP-02 Effort tracking
-try:
-    try:
-        from .effort import (
-            EffortObserver,
-            EffortValidator,
-            EffortReceipt,
-            EffortSegment,
-            Signal,
-            SignalType,
-            generate_receipt,
-            get_receipt,
-            get_receipts_for_memory,
-            link_receipt_to_memory,
-            list_pending_segments,
-        )
-    except ImportError:
-        from effort import (
-            EffortObserver,
-            EffortValidator,
-            EffortReceipt,
-            EffortSegment,
-            Signal,
-            SignalType,
-            generate_receipt,
-            get_receipt,
-            get_receipts_for_memory,
-            link_receipt_to_memory,
-            list_pending_segments,
-        )
-    EFFORT_AVAILABLE = True
-except ImportError:
-    EFFORT_AVAILABLE = False
 
-# Agent-OS governance
-try:
-    try:
-        from .agent_os import (
-            BoundaryDaemon,
-            ConstitutionManager,
-            GovernanceLogger,
-            AgentIdentity,
-            AgentRole,
-            OperationalMode,
-            check_agent_permission,
-            require_human_authority,
-            get_governance_summary,
-            verify_vault_constitution,
-            register_memory_vault_agent,
-        )
-    except ImportError:
-        from agent_os import (
-            BoundaryDaemon,
-            ConstitutionManager,
-            GovernanceLogger,
-            AgentIdentity,
-            AgentRole,
-            OperationalMode,
-            check_agent_permission,
-            require_human_authority,
-            get_governance_summary,
-            verify_vault_constitution,
-            register_memory_vault_agent,
-        )
-    AGENT_OS_AVAILABLE = True
-except ImportError:
-    AGENT_OS_AVAILABLE = False
 
 __all__ = [
     # Core
@@ -276,9 +185,9 @@ __all__ = [
     "ERRORS_AVAILABLE",
     "SIEM_AVAILABLE",
     "BOUNDARY_AVAILABLE",
-    "NATLANGCHAIN_AVAILABLE",
-    "EFFORT_AVAILABLE",
-    "AGENT_OS_AVAILABLE",
+
+
+
 ]
 
 # Add error classes to __all__ if available
@@ -348,46 +257,5 @@ if BOUNDARY_AVAILABLE:
         "get_boundary_client",
     ])
 
-# Conditionally add NatLangChain exports
-if NATLANGCHAIN_AVAILABLE:
-    __all__.extend([
-        "NatLangChainClient",
-        "NatLangEntry",
-        "ChainProof",
-        "anchor_memory_to_chain",
-        "anchor_effort_receipt",
-        "verify_memory_anchor",
-        "get_memory_chain_history",
-    ])
 
-# Conditionally add effort tracking exports
-if EFFORT_AVAILABLE:
-    __all__.extend([
-        "EffortObserver",
-        "EffortValidator",
-        "EffortReceipt",
-        "EffortSegment",
-        "Signal",
-        "SignalType",
-        "generate_receipt",
-        "get_receipt",
-        "get_receipts_for_memory",
-        "link_receipt_to_memory",
-        "list_pending_segments",
-    ])
 
-# Conditionally add Agent-OS exports
-if AGENT_OS_AVAILABLE:
-    __all__.extend([
-        "BoundaryDaemon",
-        "ConstitutionManager",
-        "GovernanceLogger",
-        "AgentIdentity",
-        "AgentRole",
-        "OperationalMode",
-        "check_agent_permission",
-        "require_human_authority",
-        "get_governance_summary",
-        "verify_vault_constitution",
-        "register_memory_vault_agent",
-    ])
