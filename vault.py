@@ -288,15 +288,12 @@ class MemoryVault:
             PhysicalTokenError: Physical token required but not present
             DecryptionError: Failed to decrypt memory
         """
-        actor_info = {"type": "agent", "id": requester}
-
         # Check lockdown status first
         is_locked, since, reason = self.is_locked_down()
         if is_locked:
             exc = LockdownError(
                 f"Vault is in LOCKDOWN since {since}: {reason}",
-                lockdown_reason=reason,
-                actor=actor_info
+                lockdown_reason=reason
             )
             raise exc
 
@@ -305,9 +302,7 @@ class MemoryVault:
         row = c.fetchone()
         if not row:
             exc = MemoryNotFoundError(
-                f"Memory '{memory_id}' not found",
-                actor=actor_info,
-                metadata={"memory_id": memory_id}
+                f"Memory '{memory_id}' not found"
             )
             raise exc
 
@@ -318,12 +313,7 @@ class MemoryVault:
         # Check if memory is tombstoned
         if row_dict.get("tombstoned"):
             exc = TombstoneError(
-                f"Memory is TOMBSTONED: {row_dict.get('tombstone_reason') or 'No reason provided'}",
-                actor=actor_info,
-                metadata={
-                    "memory_id": memory_id,
-                    "tombstone_reason": row_dict.get("tombstone_reason")
-                }
+                f"Memory is TOMBSTONED: {row_dict.get('tombstone_reason') or 'No reason provided'}"
             )
             raise exc
 
@@ -345,9 +335,7 @@ class MemoryVault:
                 self._conn.commit()
                 exc = BoundaryDeniedError(
                     f"Boundary check failed: {boundary_reason}",
-                    reason=boundary_reason,
-                    actor=actor_info,
-                    metadata={"memory_id": memory_id, "classification": classification}
+                    reason=boundary_reason
                 )
                 raise exc
 
@@ -359,9 +347,7 @@ class MemoryVault:
                 self._log_recall(c, memory_id, requester, False, justification + " | human denied")
                 self._conn.commit()
                 exc = ApprovalRequiredError(
-                    "Recall denied by human",
-                    actor=actor_info,
-                    metadata={"memory_id": memory_id, "classification": classification}
+                    "Recall denied by human"
                 )
                 raise exc
 
@@ -375,9 +361,7 @@ class MemoryVault:
                 self._conn.commit()
                 exc = CooldownError(
                     f"Cooldown active — {remaining}s remaining",
-                    remaining_seconds=remaining,
-                    actor=actor_info,
-                    metadata={"memory_id": memory_id, "cooldown_seconds": cooldown}
+                    remaining_seconds=remaining
                 )
                 raise exc
 
@@ -392,9 +376,7 @@ class MemoryVault:
                 self._log_recall(c, memory_id, requester, False, justification + " | token absent")
                 self._conn.commit()
                 exc = PhysicalTokenError(
-                    "Physical token required but not presented",
-                    actor=actor_info,
-                    metadata={"memory_id": memory_id, "classification": classification}
+                    "Physical token required but not presented"
                 )
                 raise exc
             print("✓ Physical token confirmed\n")
@@ -423,10 +405,7 @@ class MemoryVault:
             self._log_recall(c, memory_id, requester, False, f"key error: {e}")
             self._conn.commit()
             exc = ProfileKeyMissingError(
-                f"Key access failed: {e}",
-                actor=actor_info,
-                metadata={"memory_id": memory_id, "profile": encryption_profile},
-                cause=e
+                f"Key access failed: {e}"
             )
             raise exc from e
 
@@ -436,10 +415,7 @@ class MemoryVault:
             self._log_recall(c, memory_id, requester, False, f"decrypt error: {e}")
             self._conn.commit()
             exc = DecryptionError(
-                "Decryption failed - possible tampering or wrong key",
-                actor=actor_info,
-                metadata={"memory_id": memory_id, "profile": encryption_profile},
-                cause=e
+                "Decryption failed - possible tampering or wrong key"
             )
             raise exc from e
 

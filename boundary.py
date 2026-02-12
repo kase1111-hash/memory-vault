@@ -107,8 +107,7 @@ class BoundaryClient:
                     total_size += len(chunk)
                     if total_size > MAX_RESPONSE_SIZE:
                         raise BoundaryError(
-                            "Response too large from boundary daemon",
-                            metadata={"max_size": MAX_RESPONSE_SIZE}
+                            "Response too large from boundary daemon"
                         )
                     # Check for complete JSON
                     try:
@@ -131,14 +130,12 @@ class BoundaryClient:
             ) from e
         except socket.timeout as e:
             raise BoundaryTimeoutError(
-                "Boundary daemon did not respond in time",
-                metadata={"timeout": self.timeout}
+                "Boundary daemon did not respond in time"
             ) from e
         except OSError as e:
             raise BoundaryConnectionError(
                 f"Socket error: {e}",
-                socket_path=self.socket_path,
-                cause=e
+                socket_path=self.socket_path
             ) from e
 
     def check_recall(
