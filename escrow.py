@@ -20,7 +20,6 @@ import os
 import uuid
 import secrets
 import base64
-import re
 from datetime import datetime, timezone
 from typing import List, Tuple
 
@@ -28,20 +27,10 @@ from nacl.public import SealedBox, PublicKey
 
 try:
     from .db import DB_PATH
-    from .crypto import derive_key_from_passphrase
+    from .crypto import derive_key_from_passphrase, validate_profile_id
 except ImportError:
     from db import DB_PATH
-    from crypto import derive_key_from_passphrase
-
-# Security: Profile ID validation pattern to prevent path traversal
-_PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
-
-def _validate_profile_id(profile_id: str) -> None:
-    """Validate profile_id to prevent path traversal attacks."""
-    if not profile_id or len(profile_id) > 64:
-        raise ValueError("Profile ID must be 1-64 characters")
-    if not _PROFILE_ID_PATTERN.match(profile_id):
-        raise ValueError("Profile ID must start with alphanumeric and contain only alphanumeric, underscore, or hyphen")
+    from crypto import derive_key_from_passphrase, validate_profile_id
 
 
 # Shamir's Secret Sharing implementation
@@ -196,7 +185,7 @@ def create_escrow(
     from .physical_token import require_physical_token
 
     # Security: Validate profile_id to prevent path traversal
-    _validate_profile_id(profile_id)
+    validate_profile_id(profile_id)
 
     total_shards = len(recipients)
 

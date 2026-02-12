@@ -21,7 +21,7 @@ PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
 
 logger = logging.getLogger(__name__)
 
-def _validate_profile_id(profile_id: str) -> None:
+def validate_profile_id(profile_id: str) -> None:
     """Validate profile_id to prevent path traversal attacks."""
     if not profile_id or len(profile_id) > 64:
         raise ValueError("Profile ID must be 1-64 characters")
@@ -67,7 +67,7 @@ def load_key_from_file(keyfile_path: str) -> bytes:
 
 def generate_keyfile(profile_id: str, directory: str = "~/.memory_vault/keys") -> str:
     # Security: Validate profile_id to prevent path traversal
-    _validate_profile_id(profile_id)
+    validate_profile_id(profile_id)
 
     directory = os.path.expanduser(directory)
     os.makedirs(directory, exist_ok=True)

@@ -12,8 +12,6 @@ from datetime import datetime, timedelta, timezone
 
 from nacl.utils import random as nacl_random
 
-import re
-
 # Support both package and direct imports
 try:
     from .models import MemoryObject
@@ -24,7 +22,8 @@ try:
         decrypt_memory,
         generate_keyfile,  # noqa: F401
         load_or_create_signing_key,
-        sign_root
+        sign_root,
+        validate_profile_id,
     )
     from .db import DB_PATH, init_db
     from .boundry import check_recall, BoundaryClient
@@ -49,7 +48,8 @@ except ImportError:
         encrypt_memory,
         decrypt_memory,
         load_or_create_signing_key,
-        sign_root
+        sign_root,
+        validate_profile_id,
     )
     from db import DB_PATH, init_db
     from boundry import check_recall, BoundaryClient
@@ -69,17 +69,6 @@ except ImportError:
 
 
 logger = logging.getLogger(__name__)
-
-
-# Security: Validate profile_id to prevent path traversal
-PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
-
-def validate_profile_id(profile_id: str) -> None:
-    """Validate profile_id to prevent path traversal attacks."""
-    if not profile_id or len(profile_id) > 64:
-        raise ValueError("Profile ID must be 1-64 characters")
-    if not PROFILE_ID_PATTERN.match(profile_id):
-        raise ValueError("Profile ID must start with alphanumeric and contain only alphanumeric, underscore, or hyphen")
 
 
 class MemoryVault:
