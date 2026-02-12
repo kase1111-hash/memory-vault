@@ -66,7 +66,6 @@ class TestBoundaryClient:
     def test_default_initialization(self):
         client = BoundaryClient()
         assert client.timeout == 5.0
-        assert client.siem_reporter is None
 
     def test_custom_initialization(self):
         client = BoundaryClient(

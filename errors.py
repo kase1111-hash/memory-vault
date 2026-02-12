@@ -1,8 +1,8 @@
 """
 Memory Vault Error Handling Framework.
 
-Provides structured exception classes with SIEM integration support.
-All exceptions include severity levels and can be reported to Boundary-SIEM.
+Provides structured exception classes with severity levels for
+classification-gated access control and audit logging.
 """
 
 from enum import IntEnum
@@ -12,7 +12,7 @@ import traceback
 
 
 class Severity(IntEnum):
-    """SIEM-compatible severity levels (1-10 scale)."""
+    """Severity levels (1-10 scale) for error classification."""
     DEBUG = 1
     INFO = 2
     NOTICE = 3
@@ -30,7 +30,7 @@ class MemoryVaultError(Exception):
 
     Attributes:
         message: Human-readable error message
-        severity: SIEM severity level (1-10)
+        severity: Severity level (1-10)
         action: Dot-notation action that failed (e.g., 'memory.recall')
         outcome: Result of the action ('failure', 'blocked', 'denied')
         actor: Actor information dict (type, id, name)
@@ -63,26 +63,6 @@ class MemoryVaultError(Exception):
             self.metadata["cause_traceback"] = traceback.format_exception(
                 type(cause), cause, cause.__traceback__
             )
-
-    def to_siem_event(self, source_host: str = "localhost") -> Dict[str, Any]:
-        """Convert exception to SIEM-compatible event format."""
-        return {
-            "timestamp": self.timestamp,
-            "source": {
-                "product": "memory-vault",
-                "host": source_host,
-                "version": "0.1.0-alpha"
-            },
-            "action": self.action,
-            "outcome": self.outcome,
-            "severity": int(self.severity),
-            "actor": self.actor,
-            "metadata": {
-                "error_type": type(self).__name__,
-                "message": self.message,
-                **self.metadata
-            }
-        }
 
 
 # ============================================================================
@@ -394,22 +374,3 @@ class PolicyViolationError(MemoryVaultError):
     action = "policy.violation"
     outcome = "denied"
 
-
-# ============================================================================
-# SIEM Integration Errors
-# ============================================================================
-
-class SIEMError(MemoryVaultError):
-    """Base class for SIEM integration errors."""
-    severity = Severity.WARNING
-    action = "siem.operation"
-
-
-class SIEMConnectionError(SIEMError):
-    """Failed to connect to SIEM endpoint."""
-    action = "siem.connect"
-
-
-class SIEMReportingError(SIEMError):
-    """Failed to report event to SIEM."""
-    action = "siem.report"

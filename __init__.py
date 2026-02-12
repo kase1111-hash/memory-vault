@@ -4,13 +4,6 @@ Memory Vault - Secure, owner-sovereign, offline-first storage for high-value cog
 
 This package provides classification-bound access control, tamper-evident auditing,
 hardware-bound secrets, and human-in-the-loop controls for AI agent memory systems.
-
-Integrations:
-- NatLangChain: Blockchain anchoring for immutable audit trails
-- Agent-OS: Governance and boundary enforcement
-- MP-02: Proof-of-Effort Receipt Protocol for verifying human effort
-- Boundary-SIEM: Security event reporting and monitoring
-- boundary-daemon: Connection protection and operational mode enforcement
 """
 
 __version__ = "0.1.0-alpha"
@@ -65,9 +58,6 @@ try:
         PhysicalTokenError,
         ConfigurationError,
         PolicyViolationError,
-        SIEMError,
-        SIEMConnectionError,
-        SIEMReportingError,
     )
     ERRORS_AVAILABLE = True
 except ImportError:
@@ -109,42 +99,10 @@ except ImportError:
             PhysicalTokenError,
             ConfigurationError,
             PolicyViolationError,
-            SIEMError,
-            SIEMConnectionError,
-            SIEMReportingError,
         )
         ERRORS_AVAILABLE = True
     except ImportError:
         ERRORS_AVAILABLE = False
-
-# SIEM reporting
-try:
-    from .siem_reporter import (
-        SIEMReporter,
-        SIEMConfig,
-        Protocol as SIEMProtocol,
-        get_reporter,
-        report_event,
-        report_exception,
-        configure_siem,
-        shutdown_siem,
-    )
-    SIEM_AVAILABLE = True
-except ImportError:
-    try:
-        from siem_reporter import (
-            SIEMReporter,
-            SIEMConfig,
-            Protocol as SIEMProtocol,
-            get_reporter,
-            report_event,
-            report_exception,
-            configure_siem,
-            shutdown_siem,
-        )
-        SIEM_AVAILABLE = True
-    except ImportError:
-        SIEM_AVAILABLE = False
 
 # Boundary daemon client
 try:
@@ -183,7 +141,6 @@ __all__ = [
     "search_recall_justifications",
     # Availability flags
     "ERRORS_AVAILABLE",
-    "SIEM_AVAILABLE",
     "BOUNDARY_AVAILABLE",
 
 
@@ -229,22 +186,6 @@ if ERRORS_AVAILABLE:
         "PhysicalTokenError",
         "ConfigurationError",
         "PolicyViolationError",
-        "SIEMError",
-        "SIEMConnectionError",
-        "SIEMReportingError",
-    ])
-
-# Add SIEM exports if available
-if SIEM_AVAILABLE:
-    __all__.extend([
-        "SIEMReporter",
-        "SIEMConfig",
-        "SIEMProtocol",
-        "get_reporter",
-        "report_event",
-        "report_exception",
-        "configure_siem",
-        "shutdown_siem",
     ])
 
 # Add Boundary exports if available
