@@ -146,7 +146,7 @@ These are test issues, not implementation issues.
 
 ### Ready
 
-- [x] Core encryption/decryption (AES-256-GCM)
+- [x] Core encryption/decryption (XSalsa20-Poly1305)
 - [x] Key derivation (Argon2id)
 - [x] 6-level classification system
 - [x] Merkle tree audit trail

@@ -78,7 +78,7 @@ alpha release. See below for historical context.
 - **Core Features**
   - 6-level classification system (Ephemeral → Black)
   - Multiple encryption profiles (HumanPassphrase, KeyFile, TPM)
-  - AES-256-GCM encryption via libsodium
+  - XSalsa20-Poly1305 encryption via libsodium
   - Argon2id key derivation (SENSITIVE parameters)
   - Ed25519 signed Merkle audit trail
   - Full-text search (FTS5) on metadata and justifications

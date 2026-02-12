@@ -76,7 +76,7 @@ Every memory object MUST declare a classification at creation.
 ```json
 {
   "profile_id": "string",
-  "cipher": "AES-256-GCM",
+  "cipher": "XSalsa20-Poly1305",
   "key_source": "TPM|File|HumanPassphrase",
   "rotation_policy": "manual|time|event",
   "exportable": false
@@ -242,7 +242,7 @@ Allows proof of audit trail integrity without revealing memory content.
 | Core MemoryVault class (store/recall) | vault.py |
 | Classification enforcement (levels 0-5) | vault.py |
 | Encryption profiles (Passphrase, KeyFile) | vault.py, crypto.py |
-| AES-256-GCM encryption | crypto.py |
+| XSalsa20-Poly1305 encryption | crypto.py |
 | Argon2id key derivation | crypto.py |
 | Cooldown enforcement | vault.py |
 | Full-text search (FTS5) | db.py |
@@ -316,7 +316,7 @@ TPM sealing/unsealing code exists but hasn't been validated on real hardware.
 |------|---------|--------|
 | vault.py | Core MemoryVault class (store, recall, backup, restore, verify) | Production |
 | db.py | SQLite schema, FTS5, migrations | Production |
-| crypto.py | AES-256-GCM encryption, Argon2id KDF, Ed25519 signing, TPM | Production (TPM untested) |
+| crypto.py | XSalsa20-Poly1305 encryption, Argon2id KDF, Ed25519 signing, TPM | Production (TPM untested) |
 | merkle.py | Merkle tree construction, verification, rebuild | Production |
 | boundry.py | Boundary daemon Unix socket client | Production (typo in name) |
 | deadman.py | Dead-man switch, heir management, encrypted payloads | Production |
@@ -358,7 +358,7 @@ TPM sealing/unsealing code exists but hasn't been validated on real hardware.
 ## 18. Dependencies
 
 ### Required
-- `pynacl>=1.5.0` — Core cryptography (AES-256-GCM, Argon2id, Ed25519)
+- `pynacl>=1.5.0` — Core cryptography (XSalsa20-Poly1305, Argon2id, Ed25519)
 - Python 3.7+ (sqlite3, json, hashlib, uuid, datetime, base64 standard library)
 
 ### Optional

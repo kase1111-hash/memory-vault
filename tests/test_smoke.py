@@ -127,7 +127,7 @@ class TestMemoryVault:
 
         profile_id = vault.create_profile(
             profile_id="test-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
             passphrase=sample_passphrase
         )
@@ -145,7 +145,7 @@ class TestMemoryVault:
         # Create profile
         vault.create_profile(
             profile_id="test-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
             passphrase=sample_passphrase
         )
@@ -178,7 +178,7 @@ class TestMemoryVault:
 
         vault.create_profile(
             profile_id="test-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
             passphrase=sample_passphrase
         )
@@ -205,7 +205,7 @@ class TestMemoryVault:
 
         vault.create_profile(
             profile_id="test-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
             passphrase=sample_passphrase
         )
@@ -234,7 +234,7 @@ class TestMemoryVault:
 
         vault.create_profile(
             profile_id="test-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
             passphrase=sample_passphrase
         )
@@ -278,7 +278,7 @@ class TestBackupRestore:
 
         vault.create_profile(
             profile_id="test-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
             passphrase=sample_passphrase
         )
@@ -318,7 +318,7 @@ class TestBackupRestore:
 
         vault.create_profile(
             profile_id="restore-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
             passphrase=sample_passphrase,
             exportable=True  # Required for backup/restore
@@ -376,7 +376,7 @@ class TestIntegrity:
 
         vault.create_profile(
             profile_id="integrity-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
             passphrase=sample_passphrase
         )
@@ -411,7 +411,7 @@ class TestLockdown:
 
         vault.create_profile(
             profile_id="lockdown-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
             passphrase=sample_passphrase
         )
@@ -459,7 +459,7 @@ class TestTombstones:
 
         vault.create_profile(
             profile_id="tombstone-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
             passphrase=sample_passphrase
         )

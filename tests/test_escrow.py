@@ -17,8 +17,8 @@ from escrow import (
     _lagrange_interpolate,
     split_secret,
     reconstruct_secret,
-    _validate_profile_id,
 )
+from crypto import validate_profile_id
 
 
 class TestGF256Arithmetic:
@@ -219,22 +219,22 @@ class TestValidateProfileId:
 
     def test_valid_ids(self):
         for pid in ["default", "test-profile", "profile_1", "A123"]:
-            _validate_profile_id(pid)  # Should not raise
+            validate_profile_id(pid)  # Should not raise
 
     def test_empty_raises(self):
         with pytest.raises(ValueError):
-            _validate_profile_id("")
+            validate_profile_id("")
 
     def test_too_long_raises(self):
         with pytest.raises(ValueError):
-            _validate_profile_id("a" * 65)
+            validate_profile_id("a" * 65)
 
     def test_path_traversal_raises(self):
         with pytest.raises(ValueError):
-            _validate_profile_id("../etc/passwd")
+            validate_profile_id("../etc/passwd")
 
     def test_starts_with_special_raises(self):
         with pytest.raises(ValueError):
-            _validate_profile_id("-leading-dash")
+            validate_profile_id("-leading-dash")
         with pytest.raises(ValueError):
-            _validate_profile_id("_leading-underscore")
+            validate_profile_id("_leading-underscore")

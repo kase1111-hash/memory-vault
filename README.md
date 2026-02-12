@@ -17,7 +17,7 @@ Memory Vault is an **AI memory vault** and **private AI knowledge base** designe
 ## What Problem Does This Solve?
 
 - **How do I own my AI's memory?** Memory Vault gives you complete AI memory ownership with self-hosted infrastructure that never phones home.
-- **Where can I store private AI knowledge?** A personal AI knowledge vault with AES-256-GCM encryption and Argon2id key derivation that works completely offline.
+- **Where can I store private AI knowledge?** A personal AI knowledge vault with XSalsa20-Poly1305 encryption and Argon2id key derivation that works completely offline.
 - **How do I keep my AI's data sovereign?** Sovereign data for AI agents — no cloud dependencies, no third-party access, full data ownership.
 - **Can AI memory be self-hosted?** Yes. Memory Vault is designed as self-hosted AI memory that runs on your own hardware, from Raspberry Pi to enterprise servers.
 - **How do I protect sensitive cognitive artifacts?** Private agent memory with 6-level classification, hardware-bound encryption, and human approval gates.
@@ -38,7 +38,7 @@ This is an alpha release. The following limitations apply:
 ### Core Security
 - **6-Level Classification System** (0-5): From ephemeral to physically-gated secrets
 - **Multiple Encryption Profiles**: Passphrase, keyfile, or TPM-sealed keys
-- **AES-256-GCM Encryption**: Authenticated encryption via libsodium
+- **XSalsa20-Poly1305 Encryption**: Authenticated encryption via libsodium
 - **Argon2id Key Derivation**: Maximum security parameters (1GB memory)
 - **Hardware-Bound Secrets**: Optional TPM sealing for maximum security
 
@@ -393,7 +393,7 @@ memory_vault/
 ├── __init__.py         - Package initialization & exports
 ├── vault.py            - Core MemoryVault API (~1,700 lines)
 ├── db.py               - SQLite schema, migrations, FTS5, indexes
-├── crypto.py           - AES-256-GCM, Argon2id, Ed25519, TPM sealing
+├── crypto.py           - XSalsa20-Poly1305, Argon2id, Ed25519, TPM sealing
 ├── merkle.py           - Merkle tree construction & verification
 ├── models.py           - Dataclasses (MemoryObject, etc.)
 ├── errors.py           - Exception hierarchy with SIEM integration
@@ -458,7 +458,7 @@ granted, token = client.request_connection_protection(
 
 ## Security
 
-- **AES-256-GCM** encryption via libsodium (PyNaCl)
+- **XSalsa20-Poly1305** encryption via libsodium (PyNaCl)
 - **Argon2id** key derivation with maximum security parameters (1GB memory, 4 iterations)
 - **Ed25519** signed Merkle audit trail
 - **TPM support** for hardware-bound keys (optional)
@@ -469,7 +469,7 @@ See [SPECIFICATION.md](SPECIFICATION.md) for detailed security model and threat 
 ## Dependencies
 
 ### Required
-- `pynacl>=1.5.0` - Core cryptography (AES-256-GCM, Argon2id, Ed25519)
+- `pynacl>=1.5.0` - Core cryptography (XSalsa20-Poly1305, Argon2id, Ed25519)
 - Python 3.7+ standard library (sqlite3, json, hashlib, uuid, datetime, base64)
 
 ### Optional

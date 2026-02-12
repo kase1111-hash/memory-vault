@@ -11,7 +11,7 @@ This document explains how to recover encrypted data from Memory Vault using onl
 
 Memory Vault uses standard cryptographic primitives that can be implemented with just PyNaCl:
 
-- **Encryption:** AES-256-GCM (via PyNaCl's SecretBox)
+- **Encryption:** XSalsa20-Poly1305 (via PyNaCl's SecretBox)
 - **Key Derivation:** Argon2id with OPSLIMIT_SENSITIVE and MEMLIMIT_SENSITIVE
 - **Signing:** Ed25519 (for audit trail, not needed for decryption)
 
@@ -103,7 +103,7 @@ def recover_with_passphrase(passphrase, salt_hex, nonce_hex, ciphertext_hex):
         memlimit=MEMLIMIT_SENSITIVE
     )
 
-    # Decrypt using SecretBox (AES-256-GCM)
+    # Decrypt using SecretBox (XSalsa20-Poly1305)
     box = SecretBox(key)
     plaintext = box.decrypt(nonce + ciphertext)
 
@@ -179,7 +179,7 @@ CREATE TABLE memories (
 -- Encryption profiles
 CREATE TABLE encryption_profiles (
     profile_id TEXT PRIMARY KEY,
-    cipher TEXT NOT NULL DEFAULT 'AES-256-GCM',
+    cipher TEXT NOT NULL DEFAULT 'XSalsa20-Poly1305',
     key_source TEXT NOT NULL,      -- HumanPassphrase, KeyFile, or TPM
     rotation_policy TEXT DEFAULT 'manual',
     exportable INTEGER NOT NULL DEFAULT 0
@@ -234,7 +234,7 @@ If Memory Vault code is unavailable:
 - The salt prevents rainbow table attacks on passphrases
 - The nonce ensures each encryption is unique
 - Argon2id with SENSITIVE parameters makes brute-force extremely expensive
-- AES-256-GCM provides authenticated encryption (detects tampering)
+- XSalsa20-Poly1305 provides authenticated encryption (detects tampering)
 - Signing keys (Ed25519) are for audit trail integrity, not needed for decryption
 
 ---

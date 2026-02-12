@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Memory Vault is a sovereign, offline-capable AI memory storage system with AES-256-GCM encryption and Argon2id key derivation. It provides encrypted knowledge storage for AI agents with owner-controlled access, classification-bound permissions, and tamper-evident auditing.
+Memory Vault is a sovereign, offline-capable AI memory storage system with XSalsa20-Poly1305 encryption and Argon2id key derivation. It provides encrypted knowledge storage for AI agents with owner-controlled access, classification-bound permissions, and tamper-evident auditing.
 
 **Status:** v0.1.0-alpha (Feature Complete)
 **Python:** 3.8+ recommended (3.7 minimum)
@@ -38,7 +38,7 @@ pre-commit run --all-files
 ```
 vault.py          - Core MemoryVault class (store/recall/backup/restore)
 cli.py            - CLI interface with 40+ subcommands
-crypto.py         - AES-256-GCM, Argon2id, Ed25519 cryptography
+crypto.py         - XSalsa20-Poly1305, Argon2id, Ed25519 cryptography
 db.py             - SQLite schema, FTS5 full-text search, migrations
 errors.py         - 30+ exception types with SIEM integration
 effort.py         - MP-02 Proof-of-Effort receipts
