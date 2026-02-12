@@ -169,7 +169,7 @@ The Vault refuses recall if:
 | Ed25519 signed Merkle roots | Implemented |
 | Full integrity verification CLI | Implemented |
 | Recall logs hashed and chained | Implemented |
-| Zero-knowledge existence proofs | Implemented |
+| Zero-knowledge existence proofs | Experimental |
 
 Allows proof of audit trail integrity without revealing memory content.
 
@@ -192,10 +192,10 @@ Allows proof of audit trail integrity without revealing memory content.
 
 | Feature | Status |
 |---------|--------|
-| Dead-man switches | Implemented |
-| Encrypted release to designated heirs | Implemented |
-| Physical token required for arming | Implemented |
-| Escrowed keys (Shamir's Secret Sharing) | Implemented |
+| Dead-man switches | Experimental |
+| Encrypted release to designated heirs | Experimental |
+| Physical token required for arming | Experimental |
+| Escrowed keys (Shamir's Secret Sharing) | Experimental |
 
 ### 9.4 Backup & Recovery
 
@@ -251,7 +251,7 @@ Allows proof of audit trail integrity without revealing memory content.
 | Dead-man switch | deadman.py |
 | Heir management + encrypted payloads | deadman.py |
 | CLI interface | cli.py |
-| Boundary daemon client | boundry.py |
+| Boundary daemon client | boundary.py |
 | Physical token authentication (Level 5) | physical_token.py |
 | FIDO2/U2F token support | physical_token.py |
 | HMAC challenge-response tokens | physical_token.py |
@@ -318,25 +318,23 @@ TPM sealing/unsealing code exists but hasn't been validated on real hardware.
 | db.py | SQLite schema, FTS5, migrations | Production |
 | crypto.py | XSalsa20-Poly1305 encryption, Argon2id KDF, Ed25519 signing, TPM | Production (TPM untested) |
 | merkle.py | Merkle tree construction, verification, rebuild | Production |
-| boundry.py | Boundary daemon Unix socket client | Production (typo in name) |
-| deadman.py | Dead-man switch, heir management, encrypted payloads | Production |
+| boundary.py | Boundary daemon Unix socket client | Production |
 | models.py | MemoryObject and related dataclasses | Production |
-| cli.py | Complete command-line interface (~40 subcommands) | Production |
-| physical_token.py | Physical token authentication (FIDO2, HMAC, TOTP) | Production |
+| errors.py | Exception hierarchy | Production |
+| cli.py | Command-line interface | Production |
+| deadman.py | Dead-man switch, heir management, encrypted payloads | Experimental |
+| physical_token.py | Physical token authentication (FIDO2, HMAC, TOTP) | Experimental |
 | intentlog.py | IntentLog bidirectional linking adapter | Production |
-| zkproofs.py | Zero-knowledge existence proofs | Production |
-| escrow.py | Shamir's Secret Sharing key escrow | Production |
-| natlangchain.py | NatLangChain blockchain anchoring | Production |
-| agent_os.py | Agent-OS governance integration | Production |
-| effort.py | MP-02 Proof-of-Effort receipt protocol | Production |
+| zkproofs.py | Zero-knowledge existence proofs | Experimental |
+| escrow.py | Shamir's Secret Sharing key escrow | Experimental |
 
 ---
 
 ## 16. Known Issues
 
-1. **Filename typo:** `boundry.py` should be `boundary.py` - kept for backwards compatibility
-2. **TPM untested:** TPM sealing/unsealing code has not been validated on hardware
-3. **FIDO2 credential registration:** physical_token.py verifies device presence but doesn't implement full credential management
+1. **TPM untested:** TPM sealing/unsealing code has not been validated on hardware
+2. **FIDO2 credential registration:** physical_token.py verifies device presence but doesn't implement full credential management (experimental)
+3. **Experimental modules:** zkproofs.py, deadman.py, escrow.py, and physical_token.py are functional but their APIs may change
 
 ---
 

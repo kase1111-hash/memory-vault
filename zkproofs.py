@@ -2,6 +2,9 @@
 """
 Zero-Knowledge Proofs for Memory Vault.
 
+.. warning:: **Experimental** - This module's API may change or be extracted
+   into a separate package in a future release.
+
 Provides mechanisms to prove memory existence without revealing content.
 Uses commitment schemes and Merkle proofs for cryptographic verification.
 """

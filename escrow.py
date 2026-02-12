@@ -2,6 +2,9 @@
 """
 Escrowed Keys - Shamir's Secret Sharing for Memory Vault.
 
+.. warning:: **Experimental** - This module's API may change or be extracted
+   into a separate package in a future release.
+
 This module provides third-party key escrow using Shamir's Secret Sharing Scheme (SSSS).
 Keys are split into N shards, where any K shards (threshold) can reconstruct the original.
 

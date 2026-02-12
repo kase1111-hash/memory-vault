@@ -1,4 +1,10 @@
 # memory_vault/deadman.py
+"""
+Dead-Man Switch - Encrypted heir release on owner absence.
+
+.. warning:: **Experimental** - This module's API may change or be extracted
+   into a separate package in a future release.
+"""
 
 import sqlite3
 import json
