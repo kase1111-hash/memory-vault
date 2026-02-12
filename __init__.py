@@ -106,7 +106,7 @@ except ImportError:
 
 # Boundary daemon client
 try:
-    from .boundry import (
+    from .boundary import (
         BoundaryClient,
         BoundaryStatus,
         OperationalMode,
@@ -116,7 +116,7 @@ try:
     BOUNDARY_AVAILABLE = True
 except ImportError:
     try:
-        from boundry import (
+        from boundary import (
             BoundaryClient,
             BoundaryStatus,
             OperationalMode,

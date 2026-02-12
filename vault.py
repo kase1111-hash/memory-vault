@@ -26,7 +26,7 @@ try:
         validate_profile_id,
     )
     from .db import DB_PATH, init_db
-    from .boundry import check_recall, BoundaryClient
+    from .boundary import check_recall, BoundaryClient
     from .merkle import hash_leaf, build_tree
     from .errors import (
         MemoryVaultError,
@@ -52,7 +52,7 @@ except ImportError:
         validate_profile_id,
     )
     from db import DB_PATH, init_db
-    from boundry import check_recall, BoundaryClient
+    from boundary import check_recall, BoundaryClient
     from merkle import hash_leaf, build_tree
     from errors import (
         MemoryVaultError,

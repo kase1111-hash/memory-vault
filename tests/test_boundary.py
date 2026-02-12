@@ -1,5 +1,5 @@
 """
-Tests for boundry.py - Boundary daemon client.
+Tests for boundary.py - Boundary daemon client.
 
 Tests data structures, error handling, and client behavior
 without requiring a running boundary daemon.
@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-from boundry import (
+from boundary import (
     OperationalMode,
     BoundaryStatus,
     BoundaryClient,
@@ -126,10 +126,10 @@ class TestLegacyCheckRecall:
 
     def test_returns_tuple(self, monkeypatch):
         """check_recall returns (bool, str) tuple."""
-        import boundry
+        import boundary
         # Reset global client so it reconnects with bad socket
-        monkeypatch.setattr(boundry, "_global_client", None)
-        monkeypatch.setattr(boundry, "SOCKET_PATH", "/tmp/nonexistent_socket_12345.sock")
+        monkeypatch.setattr(boundary, "_global_client", None)
+        monkeypatch.setattr(boundary, "SOCKET_PATH", "/tmp/nonexistent_socket_12345.sock")
         permitted, reason = check_recall(memory_class=0)
         assert isinstance(permitted, bool)
         assert isinstance(reason, str)
@@ -140,7 +140,7 @@ class TestGetClient:
     """Test global client management."""
 
     def test_returns_boundary_client(self, monkeypatch):
-        import boundry
-        monkeypatch.setattr(boundry, "_global_client", None)
+        import boundary
+        monkeypatch.setattr(boundary, "_global_client", None)
         client = get_client()
         assert isinstance(client, BoundaryClient)
