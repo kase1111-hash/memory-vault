@@ -1,5 +1,5 @@
 """
-Tests for errors.py - Exception hierarchy and SIEM integration.
+Tests for errors.py - Exception hierarchy and severity levels.
 """
 import os
 import sys
@@ -46,9 +46,6 @@ from errors import (
     PhysicalTokenError,
     ConfigurationError,
     PolicyViolationError,
-    SIEMError,
-    SIEMConnectionError,
-    SIEMReportingError,
 )
 
 
@@ -102,25 +99,6 @@ class TestMemoryVaultError:
         assert err.metadata["cause_type"] == "ValueError"
         assert err.metadata["cause_message"] == "original error"
         assert "cause_traceback" in err.metadata
-
-    def test_to_siem_event(self):
-        err = MemoryVaultError(
-            "test event",
-            actor={"type": "human", "id": "user1"},
-            metadata={"key": "value"},
-        )
-        event = err.to_siem_event(source_host="vault-host")
-
-        assert event["source"]["product"] == "memory-vault"
-        assert event["source"]["host"] == "vault-host"
-        assert event["action"] == "vault.error"
-        assert event["outcome"] == "failure"
-        assert event["severity"] == int(Severity.ERROR)
-        assert event["actor"]["type"] == "human"
-        assert event["metadata"]["error_type"] == "MemoryVaultError"
-        assert event["metadata"]["message"] == "test event"
-        assert event["metadata"]["key"] == "value"
-        assert "timestamp" in event
 
     def test_is_exception(self):
         err = MemoryVaultError("test")
@@ -342,14 +320,6 @@ class TestOtherErrors:
         assert err.severity == Severity.SECURITY_VIOLATION
         assert err.outcome == "denied"
 
-    def test_siem_connection_error(self):
-        err = SIEMConnectionError("cannot connect")
-        assert isinstance(err, SIEMError)
-
-    def test_siem_reporting_error(self):
-        err = SIEMReportingError("report failed")
-        assert err.action == "siem.report"
-
 
 class TestInheritanceChain:
     """Verify the complete inheritance chain."""
@@ -369,7 +339,6 @@ class TestInheritanceChain:
             RestoreDecryptionError, RestoreVersionError,
             HardwareSecurityError, TPMError, FIDO2Error, PhysicalTokenError,
             ConfigurationError, PolicyViolationError,
-            SIEMError, SIEMConnectionError, SIEMReportingError,
         ]
         for cls in simple_subclasses:
             err = cls("test")

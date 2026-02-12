@@ -2,8 +2,7 @@
 Boundary Daemon Client for Memory Vault.
 
 Provides connection protection and operational mode enforcement via
-the boundary-daemon Unix socket protocol. Integrates with SIEM for
-security event reporting.
+the boundary-daemon Unix socket protocol.
 """
 
 import socket
@@ -20,7 +19,6 @@ from errors import (
     BoundaryDeniedError,
     BoundaryTimeoutError,
     BoundaryError,
-    Severity,
 )
 
 
@@ -60,25 +58,21 @@ class BoundaryClient:
     - Operational mode queries
     - Connection protection enforcement
     - Automatic reconnection
-    - SIEM event reporting
     """
 
     def __init__(
         self,
         socket_path: str = SOCKET_PATH,
         timeout: float = DEFAULT_TIMEOUT,
-        siem_reporter=None
     ):
         """Initialize boundary client.
 
         Args:
             socket_path: Path to boundary-daemon Unix socket
             timeout: Socket timeout in seconds
-            siem_reporter: Optional SIEMReporter instance for event reporting
         """
         self.socket_path = socket_path
         self.timeout = timeout
-        self.siem_reporter = siem_reporter
         self._lock = threading.Lock()
         self._status_cache: Optional[BoundaryStatus] = None
 
@@ -184,21 +178,6 @@ class BoundaryClient:
             permitted = response.get("permitted", False)
             reason = response.get("reason", "No reason provided")
 
-            # Report to SIEM
-            if self.siem_reporter:
-                self.siem_reporter.report_event(
-                    action="boundary.check_recall",
-                    outcome="success" if permitted else "denied",
-                    severity=Severity.INFO if permitted else Severity.WARNING,
-                    actor={"type": "agent", "id": requester or "unknown"},
-                    target={"type": "memory", "id": memory_id or "unknown"},
-                    metadata={
-                        "memory_class": memory_class,
-                        "justification": justification,
-                        "boundary_reason": reason
-                    }
-                )
-
             if not permitted:
                 raise BoundaryDeniedError(
                     f"Recall denied by boundary daemon: {reason}",
@@ -208,12 +187,7 @@ class BoundaryClient:
 
             return permitted, reason
 
-        except (BoundaryConnectionError, BoundaryTimeoutError) as e:
-            # Report connection issues to SIEM
-            if self.siem_reporter:
-                self.siem_reporter.report_exception(e)
-
-            # Re-raise as connection error - caller should handle
+        except (BoundaryConnectionError, BoundaryTimeoutError):
             raise
 
     def get_operational_mode(self) -> OperationalMode:
@@ -313,17 +287,7 @@ class BoundaryClient:
 
         try:
             response = self._send_request(request)
-            registered = response.get("registered", False)
-
-            if registered and self.siem_reporter:
-                self.siem_reporter.report_event(
-                    action="boundary.register_vault",
-                    outcome="success",
-                    severity=Severity.INFO,
-                    metadata={"vault_id": vault_id}
-                )
-
-            return registered
+            return response.get("registered", False)
         except BoundaryError:
             return False
 
@@ -359,23 +323,8 @@ class BoundaryClient:
             response = self._send_request(request)
             granted = response.get("granted", False)
             token = response.get("protection_token")
-
-            if granted and self.siem_reporter:
-                self.siem_reporter.report_event(
-                    action="boundary.protection_granted",
-                    outcome="success",
-                    severity=Severity.INFO,
-                    target={"type": connection_type, "id": target},
-                    metadata={
-                        "duration_seconds": duration_seconds,
-                        "protection_token": token[:8] + "..." if token else None
-                    }
-                )
-
             return granted, token
-        except BoundaryError as e:
-            if self.siem_reporter:
-                self.siem_reporter.report_exception(e)
+        except BoundaryError:
             return False, None
 
     def release_connection_protection(self, protection_token: str) -> bool:
@@ -416,14 +365,14 @@ _global_client: Optional[BoundaryClient] = None
 _client_lock = threading.Lock()
 
 
-def get_client(siem_reporter=None) -> BoundaryClient:
+def get_client() -> BoundaryClient:
     """Get or create global boundary client."""
     global _global_client
 
     if _global_client is None:
         with _client_lock:
             if _global_client is None:
-                _global_client = BoundaryClient(siem_reporter=siem_reporter)
+                _global_client = BoundaryClient()
 
     return _global_client
 

@@ -9,7 +9,6 @@ import hashlib
 import base64
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any
 
 from nacl.utils import random as nacl_random
 
@@ -41,9 +40,7 @@ try:
         MemoryNotFoundError,
         ProfileKeyMissingError,
         PhysicalTokenError,
-        Severity,
     )
-    from .siem_reporter import SIEMReporter, SIEMConfig, get_reporter
 except ImportError:
     from models import MemoryObject
     from crypto import (
@@ -68,9 +65,7 @@ except ImportError:
         MemoryNotFoundError,
         ProfileKeyMissingError,
         PhysicalTokenError,
-        Severity,
     )
-    from siem_reporter import SIEMReporter, SIEMConfig, get_reporter
 
 
 logger = logging.getLogger(__name__)
@@ -88,70 +83,18 @@ def validate_profile_id(profile_id: str) -> None:
 
 
 class MemoryVault:
-    def __init__(
-        self,
-        db_path: str = None,
-        siem_config: SIEMConfig = None,
-        enable_siem: bool = True
-    ):
+    def __init__(self, db_path: str = None):
         """
         Initialize the MemoryVault.
 
         Args:
             db_path: Optional path to the database file. If not provided, uses default DB_PATH.
-            siem_config: Optional SIEM configuration. If None, reads from environment.
-            enable_siem: Whether to enable SIEM reporting (default True).
         """
         self.db_path = db_path if db_path else DB_PATH
         self._conn = init_db(self.db_path)
         self.profile_keys = {}  # Cache non-TPM keys
         self.signing_key = load_or_create_signing_key()  # For signed Merkle roots
-
-        # Initialize SIEM reporter
-        self._siem_enabled = enable_siem
-        if enable_siem:
-            if siem_config:
-                self._siem_reporter = SIEMReporter(siem_config)
-            else:
-                self._siem_reporter = get_reporter()
-        else:
-            self._siem_reporter = None
-
-        # Initialize boundary client with SIEM integration
-        self._boundary_client = BoundaryClient(siem_reporter=self._siem_reporter)
-
-        # Report vault initialization to SIEM
-        self._report_event(
-            action="vault.init",
-            outcome="success",
-            severity=Severity.INFO,
-            metadata={"db_path": self.db_path}
-        )
-
-    def _report_event(
-        self,
-        action: str,
-        outcome: str = "success",
-        severity: int = Severity.INFO,
-        actor: Dict[str, str] = None,
-        target: Dict[str, str] = None,
-        metadata: Dict[str, Any] = None
-    ) -> None:
-        """Report event to SIEM if enabled."""
-        if self._siem_reporter:
-            self._siem_reporter.report_event(
-                action=action,
-                outcome=outcome,
-                severity=int(severity),
-                actor=actor,
-                target=target,
-                metadata=metadata
-            )
-
-    def _report_exception(self, exc: MemoryVaultError) -> None:
-        """Report exception to SIEM if enabled."""
-        if self._siem_reporter:
-            self._siem_reporter.report_exception(exc)
+        self._boundary_client = BoundaryClient()
 
     @property
     def conn(self):
@@ -160,23 +103,13 @@ class MemoryVault:
 
     def close(self):
         """Close the vault and cleanup resources."""
-        # Report vault shutdown to SIEM
-        self._report_event(
-            action="vault.close",
-            outcome="success",
-            severity=Severity.INFO,
-            metadata={"db_path": self.db_path}
-        )
-
         if self._conn:
             self._conn.close()
             self._conn = None
 
     def shutdown(self):
-        """Full shutdown including SIEM reporter."""
+        """Full shutdown of the vault."""
         self.close()
-        if self._siem_reporter and hasattr(self._siem_reporter, 'shutdown'):
-            self._siem_reporter.shutdown()
 
     # ==================== Profile Management ====================
 
@@ -379,7 +312,6 @@ class MemoryVault:
             DecryptionError: Failed to decrypt memory
         """
         actor_info = {"type": "agent", "id": requester}
-        target_info = {"type": "memory", "id": memory_id}
 
         # Check lockdown status first
         is_locked, since, reason = self.is_locked_down()
@@ -389,7 +321,6 @@ class MemoryVault:
                 lockdown_reason=reason,
                 actor=actor_info
             )
-            self._report_exception(exc)
             raise exc
 
         conn = sqlite3.connect(self.db_path)
@@ -403,7 +334,6 @@ class MemoryVault:
                     actor=actor_info,
                     metadata={"memory_id": memory_id}
                 )
-                self._report_exception(exc)
                 raise exc
 
             # Capture column names immediately after query
@@ -420,7 +350,6 @@ class MemoryVault:
                         "tombstone_reason": row_dict.get("tombstone_reason")
                     }
                 )
-                self._report_exception(exc)
                 raise exc
 
             classification = row_dict["classification"]
@@ -445,7 +374,6 @@ class MemoryVault:
                         actor=actor_info,
                         metadata={"memory_id": memory_id, "classification": classification}
                     )
-                    self._report_exception(exc)
                     raise exc
 
             # 2. Human approval
@@ -460,7 +388,6 @@ class MemoryVault:
                         actor=actor_info,
                         metadata={"memory_id": memory_id, "classification": classification}
                     )
-                    self._report_exception(exc)
                     raise exc
 
             # 3. Cooldown
@@ -477,7 +404,6 @@ class MemoryVault:
                         actor=actor_info,
                         metadata={"memory_id": memory_id, "cooldown_seconds": cooldown}
                     )
-                    self._report_exception(exc)
                     raise exc
 
             # 4. Physical token (Level 5 only)
@@ -495,7 +421,6 @@ class MemoryVault:
                         actor=actor_info,
                         metadata={"memory_id": memory_id, "classification": classification}
                     )
-                    self._report_exception(exc)
                     raise exc
                 print("✓ Physical token confirmed\n")
 
@@ -528,7 +453,6 @@ class MemoryVault:
                     metadata={"memory_id": memory_id, "profile": encryption_profile},
                     cause=e
                 )
-                self._report_exception(exc)
                 raise exc from e
 
             try:
@@ -542,7 +466,6 @@ class MemoryVault:
                     metadata={"memory_id": memory_id, "profile": encryption_profile},
                     cause=e
                 )
-                self._report_exception(exc)
                 raise exc from e
 
             # 6. Log success + update Merkle tree
@@ -550,19 +473,6 @@ class MemoryVault:
             conn.commit()
         finally:
             conn.close()
-
-        # Report successful recall to SIEM
-        self._report_event(
-            action="memory.recall",
-            outcome="success",
-            severity=Severity.INFO,
-            actor=actor_info,
-            target=target_info,
-            metadata={
-                "classification": classification,
-                "justification": justification
-            }
-        )
 
         return plaintext
 

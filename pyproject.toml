@@ -72,7 +72,7 @@ Repository = "https://github.com/kase1111-hash/memory-vault.git"
 Issues = "https://github.com/kase1111-hash/memory-vault/issues"
 
 [tool.setuptools]
-py-modules = ["vault", "crypto", "db", "models", "merkle", "cli", "boundry", "physical_token", "deadman", "intentlog", "escrow", "zkproofs", "errors", "siem_reporter"]
+py-modules = ["vault", "crypto", "db", "models", "merkle", "cli", "boundry", "physical_token", "deadman", "intentlog", "escrow", "zkproofs", "errors"]
 packages = []
 
 [tool.pytest.ini_options]
