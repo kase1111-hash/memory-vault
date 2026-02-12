@@ -30,7 +30,7 @@ This is an alpha release. The following limitations apply:
 - **HMAC challenge-response** checks for a local secret file but does not communicate with YubiKey hardware over HID. This is a reduced-security mode.
 - **TPM 2.0 sealing** is implemented but has not been validated on physical TPM hardware.
 - **Single-owner model** — the vault assumes a single owner. Multi-user or multi-tenant access is not supported.
-- **No async support** — SIEM reporting and boundary daemon communication use synchronous I/O.
+- **No async support** — boundary daemon communication uses synchronous I/O.
 - **Argon2id SENSITIVE parameters** use 1 GB memory per key derivation, which makes bulk operations slow and may not be suitable for resource-constrained devices.
 
 ## Features
@@ -52,19 +52,16 @@ This is an alpha release. The following limitations apply:
 ### Audit & Integrity
 - **Tamper-Evident Audit Trail**: Merkle tree over all recall events
 - **Signed Merkle Roots**: Ed25519 signatures with optional TPM sealing
-- **Zero-Knowledge Proofs**: Prove memory existence without revealing content
-- **NatLangChain Anchoring**: Immutable blockchain audit trails
+- **Zero-Knowledge Proofs**: Prove memory existence without revealing content (experimental)
 
 ### Recovery & Succession
 - **Encrypted Backups**: Full + incremental backup chain with tracking
-- **Dead-Man Switch**: Encrypted heir release on owner absence
-- **Key Escrow**: Shamir's Secret Sharing for quorum recovery
+- **Dead-Man Switch**: Encrypted heir release on owner absence (experimental)
+- **Key Escrow**: Shamir's Secret Sharing for quorum recovery (experimental)
 - **Memory Tombstones**: Mark inaccessible but retain for audit
 
-### Integrations
+### Other
 - **IntentLog Adapter**: Bidirectional linking with intent tracking systems
-- **Agent-OS Governance**: Constitution-based access control
-- **MP-02 Proof-of-Effort**: Cryptographic effort receipts for human work
 - **Full-Text Search**: FTS5 on metadata and recall justifications
 
 ## Installation
@@ -96,33 +93,32 @@ pip install ".[tokens]"
 
 ## Quick Start
 
-### 1. Create Encryption Profile
+```python
+from memory_vault import MemoryVault, MemoryObject
+
+vault = MemoryVault()
+vault.create_profile("default", passphrase="my-secret")
+
+# Store
+obj = MemoryObject(content_plaintext=b"The user prefers dark mode", classification=1)
+vault.store_memory(obj, passphrase="my-secret")
+
+# Recall
+content = vault.recall_memory(obj.memory_id, justification="personalizing UI", passphrase="my-secret")
+```
+
+See [`examples/langchain_memory.py`](examples/langchain_memory.py) for a complete integration example including a LangChain-compatible adapter pattern.
+
+### CLI Usage
 
 ```bash
-# Passphrase-based (default)
+# Create a profile
 python -m memory_vault.cli create-profile my-profile --key-source HumanPassphrase
 
-# Keyfile-based
-python -m memory_vault.cli create-profile secure-file --key-source KeyFile --generate-keyfile
+# Store a memory
+python -m memory_vault.cli store --content "My secret data" --classification 2 --profile my-profile
 
-# TPM-sealed (requires TPM hardware)
-python -m memory_vault.cli create-profile tpm-profile --key-source TPM
-```
-
-### 2. Store a Memory
-
-```bash
-python -m memory_vault.cli store \
-  --content "My secret data" \
-  --classification 2 \
-  --profile my-profile \
-  --cooldown 3600 \
-  --metadata '{"type":"credential","importance":"high"}'
-```
-
-### 3. Recall a Memory
-
-```bash
+# Recall a memory
 python -m memory_vault.cli recall <memory_id> --justification "System recovery"
 ```
 
@@ -327,133 +323,37 @@ python -m memory_vault.cli escrow-export <escrow_id> alice --output alice-shard.
 python -m memory_vault.cli escrow-delete <escrow_id>
 ```
 
-## NatLangChain Blockchain
-
-```bash
-# Set API endpoint
-export NATLANGCHAIN_API_URL="http://localhost:8000"
-
-# Anchor memory to blockchain
-python -m memory_vault.cli chain-anchor <memory_id>
-
-# Verify blockchain anchor
-python -m memory_vault.cli chain-verify <memory_id>
-
-# Get chain history
-python -m memory_vault.cli chain-history <memory_id>
-
-# Check connection status
-python -m memory_vault.cli chain-status
-```
-
-## MP-02 Proof-of-Effort
-
-```bash
-# Start effort observation
-python -m memory_vault.cli effort-start --reason "Implementing feature X"
-
-# Record effort signals
-python -m memory_vault.cli effort-signal text_edit "Updated authentication handler"
-python -m memory_vault.cli effort-signal decision "Chose JWT over sessions"
-python -m memory_vault.cli effort-marker "Phase 1 complete"
-
-# Stop observation
-python -m memory_vault.cli effort-stop --reason "Feature complete"
-
-# Validate effort segment
-python -m memory_vault.cli effort-validate <segment_id>
-
-# Generate signed receipt (optionally anchored to blockchain)
-python -m memory_vault.cli effort-receipt <segment_id> --memory-id <memory_id>
-
-# List pending segments
-python -m memory_vault.cli effort-pending
-
-# Get receipts for a memory
-python -m memory_vault.cli effort-get <memory_id>
-```
-
-## Agent-OS Governance
-
-```bash
-# View governance summary
-python -m memory_vault.cli governance-status
-
-# Check boundary daemon status
-python -m memory_vault.cli boundary-status
-
-# Check governance permission
-python -m memory_vault.cli governance-check <agent_id> <action> <memory_id>
-```
-
 ## Architecture
 
 ```
 memory_vault/
 ├── __init__.py         - Package initialization & exports
-├── vault.py            - Core MemoryVault API (~1,700 lines)
+├── vault.py            - Core MemoryVault API
 ├── db.py               - SQLite schema, migrations, FTS5, indexes
 ├── crypto.py           - XSalsa20-Poly1305, Argon2id, Ed25519, TPM sealing
 ├── merkle.py           - Merkle tree construction & verification
 ├── models.py           - Dataclasses (MemoryObject, etc.)
-├── errors.py           - Exception hierarchy with SIEM integration
-├── siem_reporter.py    - Boundary-SIEM event reporting
-├── cli.py              - Command-line interface (~40 subcommands)
-├── boundry.py          - Boundary daemon client & connection protection
-├── physical_token.py   - FIDO2, HMAC, TOTP token authentication
-├── deadman.py          - Dead-man switch & heir management
+├── errors.py           - Exception hierarchy
+├── cli.py              - Command-line interface
+├── boundary.py         - Boundary daemon client & connection protection
+├── physical_token.py   - FIDO2, HMAC, TOTP token authentication (experimental)
+├── deadman.py          - Dead-man switch & heir management (experimental)
 ├── intentlog.py        - IntentLog bidirectional linking adapter
-├── zkproofs.py         - Zero-knowledge existence proofs
-├── escrow.py           - Shamir's Secret Sharing key escrow
-├── natlangchain.py     - NatLangChain blockchain anchoring
-├── effort.py           - MP-02 Proof-of-Effort receipts
-└── agent_os.py         - Agent-OS governance integration
+├── zkproofs.py         - Zero-knowledge existence proofs (experimental)
+└── escrow.py           - Shamir's Secret Sharing key escrow (experimental)
 ```
 
-## Security Integrations
+## Boundary Daemon
 
-### SIEM Reporting
-
-Memory Vault can report security events to Boundary-SIEM:
+The boundary daemon enforces operational mode restrictions for high-classification recalls:
 
 ```python
-from memory_vault import MemoryVault, SIEMConfig
-
-# Configure SIEM (or use environment variables)
-config = SIEMConfig(
-    endpoint="http://siem.example.com/v1/events",
-    api_key="your-api-key",
-    enabled=True
-)
-
-vault = MemoryVault(siem_config=config)
-```
-
-Environment variables:
-- `SIEM_ENDPOINT` - SIEM API endpoint
-- `SIEM_API_KEY` - API authentication key
-- `SIEM_ENABLED` - Enable/disable reporting (default: true)
-
-### Boundary Daemon
-
-The boundary daemon enforces operational mode restrictions:
-
-```python
-from memory_vault import BoundaryClient, OperationalMode
+from boundary import BoundaryClient, OperationalMode
 
 client = BoundaryClient()
-
-# Check current mode
 status = client.get_status()
 if status.operational_mode == OperationalMode.AIRGAP:
     print("Running in airgap mode - network disabled")
-
-# Request connection protection
-granted, token = client.request_connection_protection(
-    connection_type="database",
-    target="/path/to/vault.db",
-    duration_seconds=300
-)
 ```
 
 ## Security
@@ -521,12 +421,6 @@ Memory Vault is a core component of the **Agent-OS** ecosystem for natural langu
 | [mediator-node](https://github.com/kase1111-hash/mediator-node) | LLM mediation layer for matching, negotiation, and closure proposals |
 | [ILR-module](https://github.com/kase1111-hash/ILR-module) | IP & Licensing Reconciliation — dispute resolution for intellectual property conflicts |
 | [RRA-Module](https://github.com/kase1111-hash/RRA-Module) | Revenant Repo Agent — converts abandoned repositories into autonomous licensing agents |
-
-### Security Infrastructure
-
-| Repository | Description |
-|------------|-------------|
-| [Boundary-SIEM](https://github.com/kase1111-hash/Boundary-SIEM) | Security Information and Event Management for AI agent systems |
 
 ---
 
