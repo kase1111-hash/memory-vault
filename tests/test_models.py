@@ -95,19 +95,19 @@ class TestEncryptionProfile:
         """Verify EncryptionProfile can be created."""
         profile = EncryptionProfile(
             profile_id="my-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
         )
 
         assert profile.profile_id == "my-profile"
-        assert profile.cipher == "AES-256-GCM"
+        assert profile.cipher == "XSalsa20-Poly1305"
         assert profile.key_source == "HumanPassphrase"
 
     def test_encryption_profile_defaults(self):
         """Verify EncryptionProfile has sensible defaults."""
         profile = EncryptionProfile(
             profile_id="test-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="KeyFile",
         )
 
@@ -118,7 +118,7 @@ class TestEncryptionProfile:
         """Verify EncryptionProfile can be set as exportable."""
         profile = EncryptionProfile(
             profile_id="export-profile",
-            cipher="AES-256-GCM",
+            cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
             exportable=True,
         )
@@ -132,7 +132,7 @@ class TestEncryptionProfile:
         for source in sources:
             profile = EncryptionProfile(
                 profile_id=f"{source.lower()}-profile",
-                cipher="AES-256-GCM",
+                cipher="XSalsa20-Poly1305",
                 key_source=source,
             )
             assert profile.key_source == source

@@ -116,7 +116,7 @@ class MemoryVault:
     def create_profile(
         self,
         profile_id: str,
-        cipher: str = "AES-256-GCM",
+        cipher: str = "XSalsa20-Poly1305",
         key_source: str = "HumanPassphrase",
         rotation_policy: str = "manual",
         exportable: bool = False,

@@ -43,7 +43,7 @@ Please include the following information to help us triage your report:
 Memory Vault implements multiple layers of security:
 
 #### Cryptographic Standards
-- **Encryption**: AES-256-GCM (authenticated encryption)
+- **Encryption**: XSalsa20-Poly1305 (authenticated encryption)
 - **Key Derivation**: Argon2id with maximum security parameters (1GB memory, 4 iterations)
 - **Signing**: Ed25519 for audit trail integrity
 - **Implementation**: libsodium via PyNaCl (audited, constant-time operations)

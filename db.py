@@ -40,7 +40,7 @@ def init_db(db_path: str = None):
     c.execute('''
         CREATE TABLE IF NOT EXISTS encryption_profiles (
             profile_id TEXT PRIMARY KEY,
-            cipher TEXT NOT NULL DEFAULT 'AES-256-GCM',
+            cipher TEXT NOT NULL DEFAULT 'XSalsa20-Poly1305',
             key_source TEXT NOT NULL,
             rotation_policy TEXT DEFAULT 'manual',
             exportable INTEGER NOT NULL DEFAULT 0
@@ -321,8 +321,8 @@ def init_db(db_path: str = None):
 
     # --- Default Profiles ---
     default_profiles = [
-        ("default-passphrase", "AES-256-GCM", "HumanPassphrase", "manual", 0),
-        ("static-keyfile", "AES-256-GCM", "KeyFile", "never", 0),
+        ("default-passphrase", "XSalsa20-Poly1305", "HumanPassphrase", "manual", 0),
+        ("static-keyfile", "XSalsa20-Poly1305", "KeyFile", "never", 0),
     ]
     c.executemany('''
         INSERT OR IGNORE INTO encryption_profiles

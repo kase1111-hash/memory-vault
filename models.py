@@ -19,7 +19,7 @@ class MemoryObject:
 @dataclass
 class EncryptionProfile:
     profile_id: str
-    cipher: str = "AES-256-GCM"
+    cipher: str = "XSalsa20-Poly1305"
     key_source: str = "HumanPassphrase"  # or "File", "TPM"
     rotation_policy: str = "manual"
     exportable: bool = False

@@ -277,7 +277,7 @@ class BoundaryClient:
                 "service_type": "memory_vault",
                 "service_id": vault_id,
                 "capabilities": capabilities or {
-                    "encryption": "AES-256-GCM",
+                    "encryption": "XSalsa20-Poly1305",
                     "classification_levels": 6,
                     "merkle_audit": True,
                     "hardware_binding": True
