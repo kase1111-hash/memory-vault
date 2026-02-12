@@ -1,4 +1,11 @@
-# memory_vault/token.py
+# memory_vault/physical_token.py
+"""
+Physical Token Authentication - FIDO2, HMAC, and TOTP for Level 5 memories.
+
+.. warning:: **Experimental** - FIDO2 verifies device presence only (not
+   registered credentials). HMAC checks a local secret file but does not
+   communicate with YubiKey hardware over HID. This module's API may change.
+"""
 
 import os
 import hmac

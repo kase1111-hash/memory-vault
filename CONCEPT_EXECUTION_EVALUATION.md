@@ -1,5 +1,9 @@
 # PROJECT EVALUATION REPORT
 
+> **Note:** This evaluation covers the pre-refocus v0.1.0-alpha codebase. As of v0.2.0-alpha,
+> the recommendations in this report (extract ecosystem modules, remove SIEM, simplify errors)
+> have been implemented. See REFOCUS_PLAN.md and CHANGELOG.md for details.
+
 **Project:** Memory Vault v0.1.0-alpha
 **Primary Classification:** Multiple Ideas in One
 **Secondary Tags:** Feature Creep, Over-Engineered

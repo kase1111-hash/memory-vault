@@ -1,5 +1,10 @@
 # Comprehensive Software Purpose & Quality Evaluation
 
+> **Note:** This report evaluates the pre-refocus v0.1.0-alpha codebase. As of v0.2.0-alpha,
+> ecosystem modules (natlangchain, effort, agent_os, siem_reporter) have been extracted,
+> `boundry.py` renamed to `boundary.py`, cipher docs corrected to XSalsa20-Poly1305,
+> and errors.py simplified. Many issues identified here have been addressed.
+
 ## Memory Vault — v0.1.0-alpha
 
 **Evaluation Date:** 2026-02-05
