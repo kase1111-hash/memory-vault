@@ -1,5 +1,10 @@
 # Memory Vault Security and Correctness Audit Report
 
+> **Note:** This audit covers the pre-refocus v0.1.0-alpha codebase. As of v0.2.0-alpha,
+> ecosystem modules (natlangchain, effort, agent_os, siem_reporter) have been extracted,
+> `boundry.py` renamed to `boundary.py`, cipher docs corrected to XSalsa20-Poly1305,
+> and errors.py simplified. Many findings here have been resolved.
+
 **Audit Date:** January 28, 2026
 **Auditor:** Automated Code Audit
 **Version:** v0.1.0-alpha

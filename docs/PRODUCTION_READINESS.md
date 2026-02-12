@@ -1,12 +1,17 @@
 # Production Readiness Assessment
 
-**Date:** 2026-01-01
-**Version:** 0.1.0-alpha
+> **Note:** This assessment was written for the v0.1.0-alpha release. As of v0.2.0-alpha,
+> ecosystem modules (SIEM, NatLangChain, Effort, Agent-OS) have been extracted,
+> `boundry.py` renamed to `boundary.py`, and errors.py simplified. Sections below
+> referencing removed features reflect the pre-refocus state.
+
+**Date:** 2026-01-01 (updated February 2026)
+**Version:** 0.2.0-alpha
 **Status:** Alpha Release
 
 ## Executive Summary
 
-Memory Vault is a cryptographic storage system for AI agent ecosystems. This is the **first public alpha release** (v0.1.0-alpha), consolidating core functionality with production-grade error handling and security integrations.
+Memory Vault is an encrypted, classification-gated memory store for AI agents. This alpha release provides core functionality with structured error handling and boundary daemon integration.
 
 ### Alpha Release Scope
 
@@ -15,7 +20,6 @@ Memory Vault is a cryptographic storage system for AI agent ecosystems. This is 
 - 6-level classification system
 - Merkle audit trail with signed roots
 - Backup/restore functionality
-- SIEM integration for security monitoring
 - Boundary daemon connection protection
 
 **Requires Additional Validation:**
@@ -29,8 +33,7 @@ Memory Vault is a cryptographic storage system for AI agent ecosystems. This is 
 This alpha release seeks community feedback on:
 1. API design and usability
 2. Error handling and exception hierarchy
-3. SIEM event format and content
-4. Documentation clarity
+3. Documentation clarity
 
 ## Improvements Made in This Review
 
@@ -88,33 +91,19 @@ Enhanced `.github/workflows/test.yml` with:
   - Fixed relative import issues for standalone module usage
 - **`__init__.py`**: Support both package and direct imports
 
-### 7. Error Handling Framework (v1.2.0)
+### 7. Error Handling Framework
 
-- **`errors.py`**: Comprehensive exception hierarchy with SIEM integration:
-  - Base `MemoryVaultError` with SIEM event conversion
+- **`errors.py`**: Structured exception hierarchy:
   - 10-level severity scale (DEBUG to BREACH_DETECTED)
-  - Specialized exceptions: CryptoError, AccessError, BoundaryError, DatabaseError, etc.
-  - Full actor/target tracking for security events
-  - Automatic traceback capture for debugging
+  - 19 exception types for core operations (CryptoError, AccessError, BoundaryError, etc.)
 
-### 8. SIEM Integration (v1.2.0)
+### 8. Boundary Daemon Integration
 
-- **`siem_reporter.py`**: Boundary-SIEM integration:
-  - HTTP/JSON API support (`POST /v1/events`)
-  - CEF protocol support (UDP/TCP)
-  - Async event reporting with background worker
-  - Event batching for performance
-  - Automatic retry with exponential backoff
-  - Global reporter with environment configuration
-
-### 9. Enhanced Boundary Daemon Integration (v1.2.0)
-
-- **`boundry.py`**: Enhanced with production features:
+- **`boundary.py`**: Production features:
   - `BoundaryClient` class with full protocol support
   - Connection protection requests
   - Vault registration with boundary-daemon
   - Operational mode querying (ONLINE/OFFLINE/AIRGAP/COLDROOM)
-  - SIEM event reporting for boundary decisions
   - Status caching for performance
 
 ## Test Results
@@ -163,9 +152,6 @@ These are test issues, not implementation issues.
 - [x] Shamir's Secret Sharing escrow
 - [x] Zero-knowledge proofs
 - [x] IntentLog integration
-- [x] NatLangChain blockchain anchoring
-- [x] MP-02 Proof-of-Effort protocol
-- [x] Agent-OS governance
 - [x] Backup/restore
 - [x] Key rotation
 
@@ -201,8 +187,7 @@ These are test issues, not implementation issues.
 
 ## Known Issues
 
-1. **File typo**: `boundry.py` should be `boundary.py` (kept for backwards compatibility)
-2. **TPM untested**: TPM sealing code exists but hasn't been validated on real hardware
+1. **TPM untested**: TPM sealing code exists but hasn't been validated on real hardware
 3. **FIDO2 incomplete**: Device verification works, but full credential registration not implemented
 4. **Interactive operations**: Some operations (tombstone, lockdown) require interactive confirmation
 

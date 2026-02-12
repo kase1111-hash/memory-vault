@@ -276,7 +276,7 @@ Allows proof of audit trail integrity without revealing memory content.
 
 ### 13.3 All Core Features Implemented
 
-All core features including MP-02 Proof-of-Effort receipts are now implemented. See `docs/INTEGRATIONS.md` for integration details.
+All core features are implemented. See `docs/INTEGRATIONS.md` for integration details.
 
 ---
 
@@ -404,7 +404,11 @@ TPM sealing/unsealing code exists but hasn't been validated on real hardware.
 
 ---
 
-## Appendix A: MP-02 Proof-of-Effort Receipt Protocol
+## Appendix A: MP-02 Proof-of-Effort Receipt Protocol (Historical)
+
+> **Note:** The MP-02 effort module (`effort.py`) was extracted from Memory Vault in v0.2.0-alpha
+> as it is a separate protocol that belongs in its own package. This appendix is retained for
+> historical reference.
 
 ### A.1 Purpose
 

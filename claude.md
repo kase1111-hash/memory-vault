@@ -37,21 +37,19 @@ pre-commit run --all-files
 
 ```
 vault.py          - Core MemoryVault class (store/recall/backup/restore)
-cli.py            - CLI interface with 40+ subcommands
+cli.py            - CLI interface
 crypto.py         - XSalsa20-Poly1305, Argon2id, Ed25519 cryptography
 db.py             - SQLite schema, FTS5 full-text search, migrations
-errors.py         - 30+ exception types with SIEM integration
-effort.py         - MP-02 Proof-of-Effort receipts
-agent_os.py       - Agent-OS governance integration
-siem_reporter.py  - Boundary-SIEM event reporting
-escrow.py         - Shamir's Secret Sharing key escrow
-boundry.py        - Boundary daemon client
-physical_token.py - FIDO2, HMAC, TOTP authentication
-intentlog.py      - IntentLog bidirectional linking
-deadman.py        - Dead-man switch & heir management
-zkproofs.py       - Zero-knowledge existence proofs
+errors.py         - Exception hierarchy (19 structured types)
 models.py         - Core dataclasses (MemoryObject, etc.)
 merkle.py         - Merkle tree construction & verification
+boundary.py       - Boundary daemon Unix socket client
+intentlog.py      - IntentLog bidirectional linking
+escrow.py         - Shamir's Secret Sharing key escrow (experimental)
+physical_token.py - FIDO2, HMAC, TOTP authentication (experimental)
+deadman.py        - Dead-man switch & heir management (experimental)
+zkproofs.py       - Zero-knowledge existence proofs (experimental)
+examples/         - Integration examples (LangChain adapter)
 tests/            - pytest test suite
 ```
 
@@ -101,7 +99,7 @@ PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
 ### Error Handling
 Always use structured exceptions from `errors.py`:
 ```python
-from errors import DecryptionError, CooldownError, ClassificationError
+from errors import DecryptionError, CooldownError, LockdownError
 ```
 
 ### Database Operations
@@ -127,5 +125,3 @@ Use the schema and helpers in `db.py`. Tables include:
 
 - Never log or expose encryption keys or plaintext content
 - Boundary daemon socket: `~/.agent-os/api/boundary.sock`
-- SIEM config via environment: `SIEM_ENDPOINT`, `SIEM_API_KEY`, `SIEM_ENABLED`
-- The file `boundry.py` has a typo in its name (should be `boundary.py`) - maintain for compatibility

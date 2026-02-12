@@ -5,29 +5,52 @@ All notable changes to Memory Vault are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0-alpha] - 2026-02-12
+
+**Refocus release.** Stripped ecosystem integrations and SIEM infrastructure to
+focus Memory Vault on its core mission: encrypted, classification-gated storage
+for AI agent memories.
+
+### Removed
+- **Ecosystem modules extracted** (belong in their own packages):
+  - `natlangchain.py` - NatLangChain blockchain anchoring
+  - `effort.py` - MP-02 Proof-of-Effort receipts
+  - `agent_os.py` - Agent-OS governance SDK
+  - `siem_reporter.py` - Boundary-SIEM event reporting
+- Removed SIEM wiring from vault.py (~15 call sites) and boundary.py
+- Removed 18 unused exception classes from errors.py
+
+### Changed
+- Simplified `MemoryVault.__init__` to single `db_path` parameter
+- Simplified `MemoryVaultError` base class (dropped actor/metadata/cause/timestamp)
+- Simplified `__init__.py` from 203 lines to 85 lines
+- Simplified `errors.py` from 377 lines / 37 classes to 188 lines / 19 classes
+- Renamed `boundry.py` to `boundary.py` (fixed typo)
+- Deduplicated `validate_profile_id` into `crypto.py`
+- All methods in vault.py now use `self._conn` (no per-method sqlite3.connect calls)
+- Marked zkproofs, deadman, escrow, physical_token as experimental
+
+### Fixed
+- Cipher documentation: corrected "AES-256-GCM" to "XSalsa20-Poly1305" across all docs
+- Connection management: replaced 19 separate sqlite3.connect() calls with shared self._conn
+
+### Added
+- `examples/langchain_memory.py` - Framework integration example with LangChain adapter pattern
+- Python-first quickstart in README (3-line store/recall example)
+
 ## [0.1.0-alpha] - 2026-01-01
 
 **First public alpha release.** This release consolidates all core functionality
-with production-grade error handling and security integrations.
+with error handling and boundary daemon integration.
 
 ### Added
 - **Error Handling Framework** (`errors.py`)
-  - 30+ structured exception types with SIEM-compatible event conversion
+  - Structured exception types with severity levels
   - 10-level severity scale (DEBUG to BREACH_DETECTED)
-  - Full actor/target tracking for security auditing
-  - Automatic traceback capture for debugging
 
-- **SIEM Integration** (`siem_reporter.py`)
-  - Boundary-SIEM HTTP/JSON API support (`POST /v1/events`)
-  - CEF protocol support (UDP/TCP) for traditional SIEM systems
-  - Async event reporting with background worker thread
-  - Event batching and automatic retry with exponential backoff
-  - Environment-based configuration
-
-- **Enhanced Boundary Daemon** (`boundry.py`)
+- **Boundary Daemon Client** (`boundary.py`)
   - `BoundaryClient` class with full protocol support
   - Connection protection requests
-  - Vault registration with boundary-daemon
   - Operational mode querying (ONLINE/OFFLINE/AIRGAP/COLDROOM)
   - Status caching for performance
 
@@ -38,8 +61,8 @@ with production-grade error handling and security integrations.
   - GitHub Actions CI with security scanning
 
 ### Changed
-- `MemoryVault` now initializes SIEM reporter and boundary client
-- `recall_memory()` uses structured exceptions and reports to SIEM
+- `MemoryVault` now initializes boundary client on construction
+- `recall_memory()` uses structured exceptions
 - Updated `pyproject.toml` with new modules
 
 ### Fixed
@@ -50,7 +73,6 @@ with production-grade error handling and security integrations.
 ### Known Issues
 - TPM sealing untested on real hardware
 - FIDO2 full credential lifecycle incomplete
-- Some pre-existing test mismatches (merkle.py, models.py)
 
 ## [Unreleased]
 
@@ -97,22 +119,18 @@ alpha release. See below for historical context.
   - Memory tombstones (mark inaccessible, retain for audit)
   - Key rotation
 
-- **Integrations**
+- **Advanced Features**
   - IntentLog bidirectional linking adapter
   - Zero-knowledge existence proofs
-  - NatLangChain blockchain anchoring
-  - MP-02 Proof-of-Effort receipt protocol
-  - Agent-OS governance integration
+  - Dead-man switch with heir management
+  - Key escrow via Shamir's Secret Sharing
 
-- **CLI** (~40 subcommands)
+- **CLI**
   - Profile management
   - Memory store/recall
   - Backup/restore
-  - Dead-man switch management
   - Integrity verification
   - Search operations
-  - Effort tracking
-  - Governance status
 
 ### Security
 - Fail-closed design (daemon unavailable → recalls denied)
