@@ -159,5 +159,5 @@ alpha release. See below for historical context.
 - Run `pip install .[dev]` to get test dependencies
 
 ### Pre-1.0 → 1.0.0
-- Database schema includes new tables (`vault_state`, `escrow_shards`, `effort_*`, `dms_heirs`)
+- Database schema includes new tables (`vault_state`, `escrow_shards`, `dms_heirs`)
 - Existing databases will be migrated automatically on first use

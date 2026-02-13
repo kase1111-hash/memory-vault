@@ -186,10 +186,18 @@ When filing a bug report, include:
 | Module | Purpose |
 |--------|---------|
 | `vault.py` | Core MemoryVault class and API |
-| `crypto.py` | Cryptographic operations |
-| `db.py` | Database schema and operations |
+| `crypto.py` | Cryptographic operations (XSalsa20-Poly1305, Argon2id, Ed25519) |
+| `db.py` | SQLite schema, migrations, FTS5 search |
 | `cli.py` | Command-line interface |
 | `models.py` | Data models and types |
+| `errors.py` | Exception hierarchy (19 exception types) |
+| `boundary.py` | Boundary daemon client and connection protection |
+| `merkle.py` | Merkle tree construction and verification |
+| `physical_token.py` | FIDO2, HMAC, TOTP token authentication (experimental) |
+| `deadman.py` | Dead-man switch and heir management (experimental) |
+| `intentlog.py` | IntentLog bidirectional linking adapter |
+| `zkproofs.py` | Zero-knowledge existence proofs (experimental) |
+| `escrow.py` | Shamir's Secret Sharing key escrow (experimental) |
 
 ### Security Principles
 

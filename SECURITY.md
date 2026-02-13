@@ -2,11 +2,10 @@
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.1.x   | :white_check_mark: |
-| 1.0.x   | :white_check_mark: |
-| < 1.0   | :x:                |
+| Version       | Supported          |
+| ------------- | ------------------ |
+| 0.2.0-alpha   | :white_check_mark: |
+| 0.1.0-alpha   | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -81,7 +80,7 @@ Memory Vault implements multiple layers of security:
 
 ## Security Updates
 
-Security updates are released as patch versions (e.g., 1.1.1) and announced via:
+Security updates are released as patch versions and announced via:
 - GitHub Releases
 - Security Advisories (for critical vulnerabilities)
 
