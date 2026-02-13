@@ -8,7 +8,7 @@ Memory Vault is an **AI memory vault** and **private AI knowledge base** designe
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-**Version:** 0.1.0-alpha | **Status:** Alpha (Feature Complete, Seeking Feedback)
+**Version:** 0.2.0-alpha | **Status:** Alpha (Core Mission Refocused, Seeking Feedback)
 
 > ⚠️ **Alpha Release**: This is the first public release. Core functionality is stable and tested,
 > but some features (TPM hardware sealing, FIDO2 credential lifecycle) require additional validation.
@@ -168,7 +168,7 @@ python -m memory_vault.physical_token test
 python -m memory_vault.cli backup full-backup.json --description "Monthly full"
 
 # Incremental backup
-python -m memory_vault.cli backup incr-2025-12.json --incremental --description "December changes"
+python -m memory_vault.cli backup incr-backup.json --incremental --description "Monthly changes"
 
 # List backups
 python -m memory_vault.cli list-backups
@@ -325,22 +325,23 @@ python -m memory_vault.cli escrow-delete <escrow_id>
 
 ## Architecture
 
+Memory Vault uses a flat module layout (all modules at the project root):
+
 ```
-memory_vault/
-├── __init__.py         - Package initialization & exports
-├── vault.py            - Core MemoryVault API
-├── db.py               - SQLite schema, migrations, FTS5, indexes
-├── crypto.py           - XSalsa20-Poly1305, Argon2id, Ed25519, TPM sealing
-├── merkle.py           - Merkle tree construction & verification
-├── models.py           - Dataclasses (MemoryObject, etc.)
-├── errors.py           - Exception hierarchy
-├── cli.py              - Command-line interface
-├── boundary.py         - Boundary daemon client & connection protection
-├── physical_token.py   - FIDO2, HMAC, TOTP token authentication (experimental)
-├── deadman.py          - Dead-man switch & heir management (experimental)
-├── intentlog.py        - IntentLog bidirectional linking adapter
-├── zkproofs.py         - Zero-knowledge existence proofs (experimental)
-└── escrow.py           - Shamir's Secret Sharing key escrow (experimental)
+__init__.py         - Package initialization & exports
+vault.py            - Core MemoryVault API
+db.py               - SQLite schema, migrations, FTS5, indexes
+crypto.py           - XSalsa20-Poly1305, Argon2id, Ed25519, TPM sealing
+merkle.py           - Merkle tree construction & verification
+models.py           - Dataclasses (MemoryObject, etc.)
+errors.py           - Exception hierarchy (19 exception types)
+cli.py              - Command-line interface
+boundary.py         - Boundary daemon client & connection protection
+physical_token.py   - FIDO2, HMAC, TOTP token authentication (experimental)
+deadman.py          - Dead-man switch & heir management (experimental)
+intentlog.py        - IntentLog bidirectional linking adapter
+zkproofs.py         - Zero-knowledge existence proofs (experimental)
+escrow.py           - Shamir's Secret Sharing key escrow (experimental)
 ```
 
 ## Boundary Daemon
@@ -370,7 +371,7 @@ See [SPECIFICATION.md](SPECIFICATION.md) for detailed security model and threat 
 
 ### Required
 - `pynacl>=1.5.0` - Core cryptography (XSalsa20-Poly1305, Argon2id, Ed25519)
-- Python 3.7+ standard library (sqlite3, json, hashlib, uuid, datetime, base64)
+- Python 3.8+ standard library (sqlite3, json, hashlib, uuid, datetime, base64)
 
 ### Optional
 - `tpm2-pytss>=2.1.0` - TPM 2.0 support (Linux only)
@@ -384,6 +385,10 @@ See [SPECIFICATION.md](SPECIFICATION.md) for detailed security model and threat 
 | [SPECIFICATION.md](SPECIFICATION.md) | Full technical specification and threat model |
 | [RECOVERY.md](RECOVERY.md) | Emergency data recovery using only PyNaCl |
 | [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Detailed integration guides for all external systems |
+| [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Alpha release assessment and readiness checklist |
+| [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup and contribution guidelines |
+| [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
 
 ## License
 

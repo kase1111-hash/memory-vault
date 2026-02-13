@@ -62,14 +62,17 @@ Memory Vault is an open source project maintained by volunteers. Response times 
 
 ### Debugging
 
-Enable verbose output for troubleshooting:
+Use the following commands for troubleshooting:
 
 ```bash
-# Run with debug logging
-python -m memory_vault.cli --verbose <command>
-
 # Verify vault integrity
 python -m memory_vault.cli verify-integrity
+
+# Check lockdown status
+python -m memory_vault.cli lockdown-status
+
+# List all profiles
+python -m memory_vault.cli list-profiles
 ```
 
 ## Commercial Support

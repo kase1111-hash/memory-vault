@@ -1,7 +1,7 @@
 # Memory Vault Recovery Guide
 
-**Version:** 1.1
-**Last Updated:** January 1, 2026
+**Version:** 0.2.0-alpha
+**Last Updated:** February 2026
 
 This document explains how to recover encrypted data from Memory Vault using only written values and the PyNaCl library. **No Memory Vault code is required for recovery.**
 
@@ -146,7 +146,7 @@ Memory Vault uses these exact parameters for key derivation:
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | Algorithm | Argon2id | Memory-hard KDF |
-| Output size | 32 bytes | AES-256 key |
+| Output size | 32 bytes | XSalsa20-Poly1305 key |
 | Salt size | 16 bytes | Random per-memory |
 | opslimit | OPSLIMIT_SENSITIVE | 4 iterations |
 | memlimit | MEMLIMIT_SENSITIVE | 1GB memory |
