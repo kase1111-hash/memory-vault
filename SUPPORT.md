@@ -11,9 +11,11 @@ Before seeking support, please review the available documentation:
 | [README.md](README.md) | Quick start guide and feature overview |
 | [SPECIFICATION.md](SPECIFICATION.md) | Full technical specification |
 | [RECOVERY.md](RECOVERY.md) | Data recovery procedures |
-| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Integration guides for external systems |
 | [SECURITY.md](SECURITY.md) | Security policy and vulnerability reporting |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup and contribution guidelines |
+| [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
+| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Integration guides for external systems |
+| [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | Alpha release assessment |
 
 ## Getting Help
 

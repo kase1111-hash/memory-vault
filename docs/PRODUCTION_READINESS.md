@@ -1,26 +1,24 @@
 # Production Readiness Assessment
 
-> **Note:** This assessment was written for the v0.1.0-alpha release. As of v0.2.0-alpha,
-> ecosystem modules (SIEM, NatLangChain, Effort, Agent-OS) have been extracted,
-> `boundry.py` renamed to `boundary.py`, and errors.py simplified. Sections below
-> referencing removed features reflect the pre-refocus state.
-
-**Date:** 2026-01-01 (updated February 2026)
-**Version:** 0.2.0-alpha
-**Status:** Alpha Release
+**Date:** 2026-02-20
+**Version:** 0.2.1-alpha
+**Status:** Alpha Release (Security Hardened)
 
 ## Executive Summary
 
-Memory Vault is an encrypted, classification-gated memory store for AI agents. This alpha release provides core functionality with structured error handling and boundary daemon integration.
+Memory Vault is an encrypted, classification-gated memory store for AI agents. This alpha release provides core functionality with structured error handling, boundary daemon integration, and comprehensive security hardening based on the Agent-OS Post-Moltbook security audit.
 
 ### Alpha Release Scope
 
 **Ready for Testing:**
-- Core encryption/decryption operations
-- 6-level classification system
-- Merkle audit trail with signed roots
+- Core encryption/decryption operations (XSalsa20-Poly1305)
+- 6-level classification system with access control
+- Merkle audit trail with Ed25519 signed roots
 - Backup/restore functionality
 - Boundary daemon connection protection
+- Post-decryption content integrity verification
+- Memory auditor callback hooks
+- Audit log archival
 
 **Requires Additional Validation:**
 - TPM hardware sealing (code complete, needs hardware testing)
@@ -28,195 +26,104 @@ Memory Vault is an encrypted, classification-gated memory store for AI agents. T
 - High-load performance testing
 - Long-term data integrity verification
 
-### Feedback Requested
+## Security Hardening (v0.2.1-alpha)
 
-This alpha release seeks community feedback on:
-1. API design and usability
-2. Error handling and exception hierarchy
-3. Documentation clarity
+All 15 findings from the [security audit](../SECURITY_AUDIT_2026-02-20.md) have been remediated:
 
-## Improvements Made in This Review
-
-### 1. Packaging & Configuration
-
-- **Fixed `pyproject.toml`**: Resolved TOML parsing error that prevented installation
-- **Updated module configuration**: Fixed setuptools configuration for flat module structure
-- **Added linting configuration**: Integrated Ruff with security-focused rules (flake8-bandit)
-- **Added development dependencies**: pip-audit, pre-commit, ruff
-
-### 2. Security Documentation
-
-- **Added `SECURITY.md`**: Comprehensive security policy including:
-  - Supported versions matrix
-  - Vulnerability reporting process
-  - Response timeline commitments
-  - Security measures overview
-  - Known limitations
-
-### 3. Contributor Guidelines
-
-- **Added `CONTRIBUTING.md`**: Complete contribution guide including:
-  - Development setup instructions
-  - Code style guidelines
-  - Testing requirements
-  - Security considerations
-  - Pull request process
-
-### 4. CI/CD Enhancements
-
-Enhanced `.github/workflows/test.yml` with:
-- **Linting job**: Ruff code formatting and linting checks
-- **Security scanning**: Bandit security analysis with artifact upload
-- **Dependency auditing**: pip-audit integration
-- **Improved test matrix**: 9 environments (3 OS x 3 Python versions)
-
-### 5. Pre-commit Hooks
-
-- **Added `.pre-commit-config.yaml`**: Automated quality checks including:
-  - Trailing whitespace and file endings
-  - YAML/JSON/TOML validation
-  - Private key detection
-  - Ruff linting and formatting
-  - Bandit security scanning
-  - Test execution on push
-
-### 6. Core Code Fixes
-
-- **`db.py`**: Added `db_path` parameter to `init_db()` and `get_connection()` for testability
-- **`vault.py`**:
-  - Added `db_path` parameter to `MemoryVault.__init__()`
-  - Added `passphrase` parameter to `create_profile()`, `store_memory()`, `recall_memory()`
-  - Added `skip_boundary_check` parameter to `recall_memory()` for testing
-  - Added `enable_lockdown()` and `disable_lockdown()` methods for non-interactive use
-  - Fixed relative import issues for standalone module usage
-- **`__init__.py`**: Support both package and direct imports
-
-### 7. Error Handling Framework
-
-- **`errors.py`**: Structured exception hierarchy:
-  - 10-level severity scale (DEBUG to BREACH_DETECTED)
-  - 19 exception types for core operations (CryptoError, AccessError, BoundaryError, etc.)
-
-### 8. Boundary Daemon Integration
-
-- **`boundary.py`**: Production features:
-  - `BoundaryClient` class with full protocol support
-  - Connection protection requests
-  - Vault registration with boundary-daemon
-  - Operational mode querying (ONLINE/OFFLINE/AIRGAP/COLDROOM)
-  - Status caching for performance
+| Category | Changes |
+|----------|---------|
+| File permissions | Database dir `0o700`, DB files `0o600`, signing key `0o600`, pub key `0o644` |
+| TOCTOU race | Signing key uses `os.fchmod(f.fileno())` before writing |
+| HMAC auth | File-only mode disabled by default; requires explicit opt-in |
+| Integrity | Post-decryption SHA256 hash verification (defense-in-depth) |
+| Supply chain | `requirements-lock.txt` with pinned hashes |
+| CI | `detect-secrets` scanning added to pipeline |
+| Lockdown | `exit_lockdown()` performs trial decryption to verify passphrase |
+| Audit | `archive_audit_logs()` method for Merkle root snapshots |
+| Auditor hooks | `register_memory_auditor()` for injection pattern detection |
 
 ## Test Results
 
-| Category | Before | After |
-|----------|--------|-------|
-| Smoke Tests Passing | 0 | 17 (100%) |
-| Other Tests Passing | N/A | 28 |
-| Collection Errors | Yes | No |
-
-All 17 smoke tests now pass, covering:
-- Database initialization
-- Cryptographic operations
-- Memory store/recall
-- Backup/restore
-- Integrity verification
-- Lockdown mode
-- Tombstone functionality
-
-### Pre-existing Test Issues (Not Addressed)
-
-The merkle.py and models.py tests have pre-existing mismatches with the implementation:
-- Merkle tests pass bytes to functions expecting strings
-- Model tests expect `None` defaults but implementation uses `{}`
-
-These are test issues, not implementation issues.
+| Metric | Value |
+|--------|-------|
+| Total tests | 168 |
+| Passing | 168 (100%) |
+| Coverage | Core store/recall, backup/restore, integrity, lockdown, tombstones |
 
 ## Production Readiness Checklist
 
 ### Ready
 
 - [x] Core encryption/decryption (XSalsa20-Poly1305)
-- [x] Key derivation (Argon2id)
+- [x] Key derivation (Argon2id with SENSITIVE parameters)
 - [x] 6-level classification system
 - [x] Merkle tree audit trail
 - [x] Ed25519 signed roots
 - [x] Profile management
-- [x] Memory store/recall
-- [x] Lockdown mode
+- [x] Memory store/recall with integrity verification
+- [x] Lockdown mode with passphrase verification
 - [x] Tombstone functionality
 - [x] Full-text search (FTS5)
 - [x] Cooldown enforcement
 - [x] Boundary daemon integration
 - [x] Human approval gates
-- [x] Dead-man switch
-- [x] Shamir's Secret Sharing escrow
-- [x] Zero-knowledge proofs
-- [x] IntentLog integration
 - [x] Backup/restore
 - [x] Key rotation
+- [x] File permission hardening
+- [x] Supply chain protection (pinned hashes)
+- [x] CI security scanning
+
+### Experimental (Functional but needs validation)
+
+- [x] Dead-man switch (`deadman.py`)
+- [x] Shamir's Secret Sharing escrow (`escrow.py`)
+- [x] Zero-knowledge proofs (`zkproofs.py`)
+- [x] IntentLog integration (`intentlog.py`)
+- [x] Physical token — TOTP authentication (`physical_token.py`)
 
 ### Needs Validation
 
 - [ ] TPM hardware sealing (code complete, needs hardware testing)
 - [ ] FIDO2 full credential lifecycle
+- [ ] HMAC YubiKey HID communication
 - [ ] High-load performance testing
 - [ ] Long-term data integrity verification
 
-### Recommended Future Improvements
-
-1. **Testing Coverage**
-   - Fix remaining test failures
-   - Add integration tests for complex workflows
-   - Add fuzz testing for crypto operations
-   - Add performance benchmarks
-
-2. **Observability**
-   - Structured logging (JSON format)
-   - Metrics collection hooks
-   - Health check endpoint
-
-3. **Deployment**
-   - Dockerfile for containerization
-   - Kubernetes manifests
-   - Helm chart
-
-4. **Documentation**
-   - API reference documentation
-   - Architecture diagrams
-   - Threat model diagrams
-
 ## Known Issues
 
-1. **TPM untested**: TPM sealing code exists but hasn't been validated on real hardware
-3. **FIDO2 incomplete**: Device verification works, but full credential registration not implemented
-4. **Interactive operations**: Some operations (tombstone, lockdown) require interactive confirmation
+1. **TPM untested** — TPM sealing code exists but hasn't been validated on real hardware
+2. **FIDO2 incomplete** — Device verification works, but full credential registration not implemented
+3. **HMAC stub** — File-only mode disabled by default; actual YubiKey HID not implemented
+4. **Merkle O(N)** — Full tree rebuilt on each recall; documented for future optimization
+5. **Interactive operations** — Some operations (tombstone, lockdown) require interactive confirmation
 
 ## Security Considerations
 
 ### Strengths
-- Fail-closed design
-- Defense in depth with multiple layers
+- Fail-closed design (boundary daemon denial is the default)
+- Defense in depth with multiple verification layers
 - Constant-time cryptographic operations (via libsodium)
-- Hardware security option (TPM)
-- Physical token support for highest classification
+- No unsafe deserialization, shell execution, or network calls
+- Post-decryption integrity verification
+- Hardened file permissions throughout
+- Supply chain protection via pinned dependency hashes
 
 ### Areas for Attention
-- Side-channel attacks at Python layer
-- Key material in memory
-- Backup encryption security
+- Side-channel attacks at Python layer (mitigated by libsodium constant-time ops)
+- Key material in memory (standard limitation of software crypto)
+- Argon2id SENSITIVE parameters use 1 GB per derivation (not suitable for constrained devices)
 
 ## Deployment Recommendations
 
 1. **Development/Testing**: Use as-is with `pip install -e ".[dev]"`
 2. **Production**:
+   - Install with `pip install --require-hashes -r requirements-lock.txt`
    - Validate TPM on target hardware if using
-   - Configure physical token devices
+   - Configure physical token devices for Level 5
    - Set up monitoring for audit logs
    - Implement backup rotation
    - Test recovery procedures
 
 ## Conclusion
 
-Memory Vault is production-ready for use cases that don't require TPM hardware binding or full FIDO2 credential management. The security architecture is sound, documentation is comprehensive, and core functionality is robust. The improvements made in this review enhance maintainability, security posture, and developer experience.
-
-For high-security deployments requiring TPM, additional hardware validation is recommended before production use.
+Memory Vault v0.2.1-alpha is suitable for testing and development use. Core encryption, access control, and auditing are fully functional with 168/168 tests passing. All security audit findings have been remediated. For production deployment, TPM hardware validation and FIDO2 credential lifecycle completion are recommended.

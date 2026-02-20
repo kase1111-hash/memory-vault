@@ -5,6 +5,37 @@ All notable changes to Memory Vault are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1-alpha] - 2026-02-20
+
+**Security hardening release.** Remediated all 15 findings from the Agent-OS
+Post-Moltbook security audit.
+
+### Security
+
+- Fixed TOCTOU race in signing key creation — uses `os.fchmod()` before writing (`crypto.py`)
+- Disabled HMAC file-only authentication by default — requires `MEMORY_VAULT_ALLOW_HMAC_FILE_ONLY=1` opt-in (`physical_token.py`)
+- Added post-decryption content hash verification — defense-in-depth SHA256 check (`vault.py`)
+- Fixed `exit_lockdown()` passphrase verification — now performs trial decryption (`vault.py`)
+- Set database directory permissions to `0o700` and file permissions to `0o600` (`db.py`)
+- Set signing key directory permissions to `0o700`, public key to `0o644` (`crypto.py`)
+- Added `requirements-lock.txt` with pinned dependency hashes for supply chain protection
+- Added `detect-secrets` scanning to CI pipeline (`.github/workflows/test.yml`)
+
+### Added
+
+- `register_memory_auditor()` — callback hook for injection pattern detection on recalled content (`vault.py`)
+- `archive_audit_logs()` — export signed Merkle root snapshots for audit log management (`vault.py`)
+- Documented O(N) Merkle tree rebuild cost with incremental optimization plan (`vault.py`)
+
+### Changed
+
+- Replaced mock API key pattern in example with non-secret content (`examples/langchain_memory.py`)
+
+### Documentation
+
+- Consolidated documentation: merged 6 overlapping/stale docs into 2
+- Updated security audit report with remediation status for all 15 findings
+
 ## [0.2.0-alpha] - 2026-02-12
 
 **Refocus release.** Stripped ecosystem integrations and SIEM infrastructure to
