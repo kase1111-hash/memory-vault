@@ -340,11 +340,12 @@ def load_or_create_signing_key(tpm_preferred: bool = True) -> SigningKey:
             print(f"TPM sealing failed ({e}), using file storage")
 
     # Save to secure file
-    os.makedirs(os.path.dirname(SIGNING_KEY_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(SIGNING_KEY_PATH), mode=0o700, exist_ok=True)
     with open(SIGNING_KEY_PATH, "wb") as f:
-        os.chmod(SIGNING_KEY_PATH, 0o600)
+        os.fchmod(f.fileno(), 0o600)
         f.write(sk.encode())
     with open(SIGNING_KEY_PATH + ".pub", "wb") as f:
+        os.fchmod(f.fileno(), 0o644)
         f.write(sk.verify_key.encode())
     print("Signing key saved to encrypted file")
     return sk

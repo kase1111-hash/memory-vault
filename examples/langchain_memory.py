@@ -87,7 +87,7 @@ def memory_with_cooldown():
 
     # Store with 60-second cooldown between accesses
     obj = MemoryObject(
-        content_plaintext=b"API key: sk-example-12345",
+        content_plaintext=b"Database connection config: host=db.internal port=5432",
         classification=2,
         access_policy={"cooldown_seconds": 60},
     )

@@ -84,6 +84,7 @@ class MemoryVault:
         self.profile_keys = {}  # Cache non-TPM keys
         self.signing_key = load_or_create_signing_key()  # For signed Merkle roots
         self._boundary_client = BoundaryClient()
+        self._memory_auditors = []  # Registered recall audit callbacks
 
     @property
     def conn(self):
@@ -99,6 +100,14 @@ class MemoryVault:
     def shutdown(self):
         """Full shutdown of the vault."""
         self.close()
+
+    def register_memory_auditor(self, auditor_fn):
+        """Register a callback to audit decrypted memory content before return.
+
+        The auditor receives (memory_id, plaintext, classification) and should
+        raise MemoryVaultError if the content fails audit checks.
+        """
+        self._memory_auditors.append(auditor_fn)
 
     # ==================== Profile Management ====================
 
@@ -419,6 +428,21 @@ class MemoryVault:
             )
             raise exc from e
 
+        # 5b. Post-decryption integrity check (defense-in-depth, T2-01)
+        stored_hash = row_dict.get("content_hash")
+        if stored_hash:
+            actual_hash = hashlib.sha256(plaintext).hexdigest()
+            if actual_hash != stored_hash:
+                self._log_recall(c, memory_id, requester, False, "content hash mismatch")
+                self._conn.commit()
+                raise DecryptionError(
+                    "Content hash mismatch after decryption - possible tampering"
+                )
+
+        # 5c. Run registered memory auditors (T2-02)
+        for auditor in self._memory_auditors:
+            auditor(memory_id, plaintext, classification)
+
         # 6. Log success + update Merkle tree
         self._log_recall(c, memory_id, requester, True, justification)
         self._conn.commit()
@@ -442,7 +466,10 @@ class MemoryVault:
 
         cursor.execute("INSERT INTO merkle_leaves (request_id, leaf_hash) VALUES (?, ?)", (request_id, leaf_hash))
 
-        # Rebuild tree
+        # Rebuild tree from all leaves.
+        # NOTE (T3-02): This is O(N) per recall where N = total recall events.
+        # For vaults with >10k recalls, consider implementing an incremental
+        # Merkle tree that appends leaves without full reconstruction.
         conn = cursor.connection
         c2 = conn.cursor()
         c2.execute("SELECT leaf_hash FROM merkle_leaves ORDER BY leaf_id")
@@ -847,6 +874,49 @@ class MemoryVault:
 
         return True
 
+    # ==================== Audit Log Archival (T3-01) ====================
+
+    def archive_audit_logs(self, before_seq: int = None, export_path: str = None) -> dict:
+        """Archive audit log roots and optionally export them.
+
+        Preserves signed Merkle roots as non-repudiation checkpoints.
+        Does NOT delete any data — only exports for external archival.
+
+        Args:
+            before_seq: Archive roots before this sequence number.
+                        If None, archives all except the latest root.
+            export_path: Optional file path to write archived roots JSON.
+
+        Returns:
+            dict with archive summary.
+        """
+        c = self._conn.cursor()
+
+        if before_seq is None:
+            c.execute("SELECT MAX(seq) FROM merkle_roots")
+            max_seq = c.fetchone()[0]
+            if not max_seq or max_seq < 2:
+                return {"archived": 0, "message": "Not enough roots to archive"}
+            before_seq = max_seq  # Keep the latest root
+
+        c.execute(
+            "SELECT seq, root_hash, timestamp, leaf_count, signature "
+            "FROM merkle_roots WHERE seq < ? ORDER BY seq",
+            (before_seq,)
+        )
+        roots = [
+            {"seq": r[0], "root_hash": r[1], "timestamp": r[2],
+             "leaf_count": r[3], "signature": r[4]}
+            for r in c.fetchall()
+        ]
+
+        if export_path and roots:
+            with open(export_path, "w") as f:
+                json.dump({"archived_roots": roots, "before_seq": before_seq}, f, indent=2)
+            print(f"Archived {len(roots)} Merkle roots to {export_path}")
+
+        return {"archived": len(roots), "latest_preserved_seq": before_seq}
+
     # ==================== Level 0 Ephemeral Auto-Purge ====================
 
     def purge_ephemeral(self, max_age_hours: int = 24) -> int:
@@ -1003,15 +1073,30 @@ class MemoryVault:
         if passphrase is None:
             passphrase = getpass.getpass("Enter unlock passphrase: ")
 
-        # Verify passphrase against default profile
+        # Verify passphrase by attempting decryption against a stored memory (A-03)
         c = self._conn.cursor()
         try:
             c.execute("SELECT profile_id FROM encryption_profiles WHERE key_source = 'HumanPassphrase' LIMIT 1")
             row = c.fetchone()
 
             if row:
-                # Just verify the passphrase can derive a key (basic check)
-                derive_key_from_passphrase(passphrase)
+                profile_id = row[0]
+                # Find a memory encrypted with this profile to verify against
+                c.execute(
+                    "SELECT salt, ciphertext, nonce FROM memories WHERE encryption_profile = ? LIMIT 1",
+                    (profile_id,)
+                )
+                mem_row = c.fetchone()
+                if mem_row and mem_row[0]:
+                    test_key, _ = derive_key_from_passphrase(passphrase, mem_row[0])
+                    try:
+                        decrypt_memory(test_key, mem_row[1], mem_row[2])
+                    except Exception:
+                        print("Passphrase verification failed: incorrect passphrase")
+                        return False
+                else:
+                    # No memories to verify against; basic derivation check
+                    derive_key_from_passphrase(passphrase)
             else:
                 print("Warning: No passphrase profile found, skipping passphrase verification")
         except Exception as e:

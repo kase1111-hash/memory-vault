@@ -1,0 +1,15 @@
+# Memory Vault - Locked Dependencies for Production (T2-04)
+#
+# This file pins exact versions with integrity hashes to protect
+# against supply chain attacks. Use for production deployments:
+#   pip install --require-hashes -r requirements-lock.txt
+#
+# To regenerate after a dependency update:
+#   pip download <pkg>==<ver> -d /tmp/hashes --no-deps
+#   pip hash /tmp/hashes/<pkg>-<ver>-*.whl
+#
+# Last updated: 2026-02-20
+
+# Core cryptography (required)
+pynacl==1.6.2 \
+    --hash=sha256:c8a231e36ec2cab018c4ad4358c386e36eede0319a0c41fed24f840b1dac59f6

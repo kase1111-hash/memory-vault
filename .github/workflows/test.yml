@@ -117,3 +117,22 @@ jobs:
           name: bandit-security-report
           path: bandit-report.json
         if: always()
+
+      - name: Scan for hardcoded secrets
+        run: |
+          pip install detect-secrets
+          detect-secrets scan --all-files --exclude-files '\.git/.*' --exclude-files 'tests/.*' > secrets-report.json || true
+          python -c "
+          import json, sys
+          with open('secrets-report.json') as f:
+              data = json.load(f)
+          results = data.get('results', {})
+          total = sum(len(v) for v in results.values())
+          if total > 0:
+              print(f'WARNING: {total} potential secret(s) detected:')
+              for f, findings in results.items():
+                  for finding in findings:
+                      print(f'  {f}:{finding[\"line_number\"]} - {finding[\"type\"]}')
+          else:
+              print('No secrets detected.')
+          "
