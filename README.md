@@ -8,7 +8,7 @@ Memory Vault is an **AI memory vault** and **private AI knowledge base** designe
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-**Version:** 0.2.0-alpha | **Status:** Alpha (Core Mission Refocused, Seeking Feedback)
+**Version:** 0.2.1-alpha | **Status:** Alpha (Security Hardened, Seeking Feedback)
 
 > ⚠️ **Alpha Release**: This is the first public release. Core functionality is stable and tested,
 > but some features (TPM hardware sealing, FIDO2 credential lifecycle) require additional validation.
