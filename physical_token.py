@@ -177,6 +177,16 @@ def _hmac_challenge_response() -> bool:
             "HMAC authentication used without hardware verification - "
             "secret file presence check only"
         )
+
+        # Security: file-only HMAC is disabled by default (T2-05).
+        # Set MEMORY_VAULT_ALLOW_HMAC_FILE_ONLY=1 to enable (reduced security).
+        allow_file_only = os.environ.get("MEMORY_VAULT_ALLOW_HMAC_FILE_ONLY", "0") == "1"
+        if not allow_file_only:
+            logger.warning(
+                "HMAC file-only mode disabled by default. "
+                "Set MEMORY_VAULT_ALLOW_HMAC_FILE_ONLY=1 to enable (reduced security)."
+            )
+            return False
         return True
 
     except OSError as e:

@@ -5,7 +5,7 @@ import os
 
 # Default database path
 DB_PATH = os.path.expanduser("~/.memory_vault/vault.db")
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+os.makedirs(os.path.dirname(DB_PATH), mode=0o700, exist_ok=True)
 
 
 def _index_exists(c: sqlite3.Cursor, index_name: str) -> bool:
@@ -31,8 +31,12 @@ def init_db(db_path: str = None):
         sqlite3.Connection: Connection to the initialized database.
     """
     path = db_path if db_path else DB_PATH
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     conn = sqlite3.connect(path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
     c = conn.cursor()
 
     # --- Core Tables ---
