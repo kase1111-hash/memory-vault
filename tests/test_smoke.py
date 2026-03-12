@@ -167,7 +167,6 @@ class TestMemoryVault:
             memory_id="test-memory-001",
             justification="Unit test recall",
             passphrase=sample_passphrase,
-            skip_boundary_check=True  # Skip for testing
         )
 
         assert recalled == sample_content
@@ -254,7 +253,6 @@ class TestMemoryVault:
             memory_id="test-cooldown",
             justification="First recall",
             passphrase=sample_passphrase,
-            skip_boundary_check=True
         )
         assert result1 == sample_content
 
@@ -264,8 +262,7 @@ class TestMemoryVault:
                 memory_id="test-cooldown",
                 justification="Second recall",
                 passphrase=sample_passphrase,
-                skip_boundary_check=True
-            )
+                )
         assert "cooldown" in str(exc_info.value).lower()
 
 
@@ -362,7 +359,6 @@ class TestBackupRestore:
             memory_id="restore-test",
             justification="Post-restore recall",
             passphrase=sample_passphrase,
-            skip_boundary_check=True
         )
         assert recalled == sample_content
 
@@ -394,7 +390,6 @@ class TestIntegrity:
             memory_id="integrity-test",
             justification="Create audit trail",
             passphrase=sample_passphrase,
-            skip_boundary_check=True
         )
 
         # Verify integrity
@@ -433,8 +428,7 @@ class TestLockdown:
                 memory_id="lockdown-test",
                 justification="Should fail",
                 passphrase=sample_passphrase,
-                skip_boundary_check=True
-            )
+                )
         assert "lockdown" in str(exc_info.value).lower()
 
         # Disable lockdown
@@ -445,7 +439,6 @@ class TestLockdown:
             memory_id="lockdown-test",
             justification="After lockdown disabled",
             passphrase=sample_passphrase,
-            skip_boundary_check=True
         )
         assert recalled == sample_content
 
@@ -485,6 +478,5 @@ class TestTombstones:
                 memory_id="tombstone-test",
                 justification="Should fail",
                 passphrase=sample_passphrase,
-                skip_boundary_check=True
-            )
+                )
         assert "tombstone" in str(exc_info.value).lower()

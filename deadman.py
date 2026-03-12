@@ -61,10 +61,11 @@ def init_deadman_switch():
 def add_heir(name: str, public_key_b64: str) -> None:
     """Add a trusted heir with their public key (age format)"""
     try:
+        from nacl.public import PublicKey
         pubkey_bytes = base64.b64decode(public_key_b64)
-        SealedBox(pubkey_bytes)  # Validate
-    except Exception as e:
-        print(f"Invalid public key: {e}")
+        SealedBox(PublicKey(pubkey_bytes))  # Validate
+    except Exception:
+        print("Invalid public key format")
         return
 
     conn = sqlite3.connect(DB_PATH)
@@ -155,7 +156,7 @@ def is_deadman_triggered() -> bool:
         return False
     if not row[1]:
         return False
-    deadline = datetime.fromisoformat(row[1].rstrip("Z"))
+    deadline = datetime.fromisoformat(row[1].rstrip("Z")).replace(tzinfo=timezone.utc)
     return datetime.now(timezone.utc) > deadline
 
 

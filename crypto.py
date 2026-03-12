@@ -147,7 +147,8 @@ def tpm_create_and_persist_primary() -> None:
             print(f"TPM primary key created at handle {hex(TPM_PRIMARY_HANDLE)}")
 
     except Exception as e:
-        print(f"TPM primary creation failed: {e}")
+        logger.error("TPM primary creation failed: %s", e)
+        print("TPM primary creation failed")
 
 
 def tpm_generate_sealed_key() -> bytes:
@@ -308,7 +309,8 @@ def tpm_load_sealed_signing_key() -> SigningKey | None:
             esys.FlushContext(handle)
             return SigningKey(private_blob)
     except Exception as e:
-        print(f"TPM signing key unsealing failed: {e}")
+        logger.error("TPM signing key unsealing failed: %s", e)
+        print("TPM signing key unsealing failed")
         return None
 
 
@@ -337,7 +339,8 @@ def load_or_create_signing_key(tpm_preferred: bool = True) -> SigningKey:
             print("Signing key sealed in TPM (non-exportable)")
             return sk
         except Exception as e:
-            print(f"TPM sealing failed ({e}), using file storage")
+            logger.error("TPM sealing failed: %s", e)
+            print("TPM sealing failed, using file storage")
 
     # Save to secure file
     os.makedirs(os.path.dirname(SIGNING_KEY_PATH), mode=0o700, exist_ok=True)
@@ -374,3 +377,52 @@ def verify_signature(vk: VerifyKey, signature_b64: str, root_hash: str, seq: int
         return True
     except (ValueError, TypeError, nacl.exceptions.BadSignatureError):
         return False
+
+
+def rotate_signing_key() -> tuple[SigningKey, int]:
+    """Rotate the Ed25519 signing key. Archives old public key and generates new one.
+
+    Returns:
+        Tuple of (new_signing_key, new_epoch)
+    """
+    import sqlite3
+    from datetime import datetime, timezone
+
+    # Determine new epoch
+    try:
+        from .db import DB_PATH
+    except ImportError:
+        from db import DB_PATH
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT MAX(epoch) FROM revoked_signing_keys")
+    row = c.fetchone()
+    new_epoch = (row[0] or 0) + 1
+
+    # Archive old public key if it exists
+    pub_path = SIGNING_KEY_PATH + ".pub"
+    if os.path.exists(pub_path):
+        with open(pub_path, "rb") as f:
+            old_pub = base64.b64encode(f.read()).decode()
+        c.execute(
+            "INSERT INTO revoked_signing_keys (epoch, public_key_b64, revoked_at, reason) VALUES (?, ?, ?, ?)",
+            (new_epoch - 1, old_pub, datetime.now(timezone.utc).isoformat(), "key rotation"),
+        )
+        conn.commit()
+
+    conn.close()
+
+    # Generate new key
+    new_sk = SigningKey.generate()
+    os.makedirs(os.path.dirname(SIGNING_KEY_PATH), mode=0o700, exist_ok=True)
+    with open(SIGNING_KEY_PATH, "wb") as f:
+        os.fchmod(f.fileno(), 0o600)
+        f.write(new_sk.encode())
+    with open(pub_path, "wb") as f:
+        os.fchmod(f.fileno(), 0o644)
+        f.write(new_sk.verify_key.encode())
+
+    logger.info("Signing key rotated to epoch %d", new_epoch)
+    print(f"Signing key rotated (epoch {new_epoch})")
+    return new_sk, new_epoch

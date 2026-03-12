@@ -16,6 +16,11 @@ except ImportError:
     from db import DB_PATH
 
 
+def _escape_like(s: str) -> str:
+    """Escape LIKE special characters to prevent wildcard injection."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def link_intent(memory_id: str, intent_id: str) -> bool:
     """
     Link a memory to an intent ID (bidirectional linking).
@@ -129,8 +134,8 @@ def get_memories_for_intent(intent_id: str) -> List[dict]:
     c.execute("""
         SELECT memory_id, classification, created_at, value_metadata, tombstoned
         FROM memories
-        WHERE intent_ref LIKE ?
-    """, (f'%{intent_id}%',))
+        WHERE intent_ref LIKE ? ESCAPE '\\'
+    """, (f'%{_escape_like(intent_id)}%',))
 
     results = []
     for row in c.fetchall():
@@ -211,10 +216,10 @@ def search_by_intent(query: str, limit: int = 20) -> List[dict]:
     c.execute("""
         SELECT memory_id, classification, created_at, intent_ref, tombstoned
         FROM memories
-        WHERE intent_ref LIKE ?
+        WHERE intent_ref LIKE ? ESCAPE '\\'
         ORDER BY created_at DESC
         LIMIT ?
-    """, (f'%{query}%', limit))
+    """, (f'%{_escape_like(query)}%', limit))
 
     results = []
     for row in c.fetchall():

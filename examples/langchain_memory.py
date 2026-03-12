@@ -36,7 +36,6 @@ def basic_usage():
         obj.memory_id,
         justification="personalizing UI",
         passphrase="my-secret",
-        skip_boundary_check=True,
     )
     print(f"Recalled: {content.decode()}")
     return content
@@ -75,7 +74,6 @@ def classified_memories():
         working.memory_id,
         justification="answering follow-up question about decorators",
         passphrase="agent-secret-key",
-        skip_boundary_check=True,
     )
     print(f"Working memory: {content.decode()}")
 
@@ -98,7 +96,6 @@ def memory_with_cooldown():
         obj.memory_id,
         justification="making API call",
         passphrase="throttle-key",
-        skip_boundary_check=True,
     )
     print(f"First recall: {content.decode()}")
 
@@ -145,8 +142,7 @@ def langchain_adapter():
                 memory_id,
                 justification=justification,
                 passphrase=self.passphrase,
-                skip_boundary_check=True,
-            )
+                    )
             return content.decode("utf-8")
 
     # Usage
@@ -162,6 +158,9 @@ def langchain_adapter():
 
 
 if __name__ == "__main__":
+    # Skip boundary daemon for examples (not for production!)
+    os.environ["MEMORY_VAULT_TESTING"] = "1"
+
     print("=== Basic Usage ===")
     basic_usage()
     print()
