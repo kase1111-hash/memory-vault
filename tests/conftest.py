@@ -9,6 +9,18 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+@pytest.fixture(autouse=True)
+def _enable_testing_mode():
+    """Enable testing mode to skip boundary daemon checks."""
+    old_val = os.environ.get("MEMORY_VAULT_TESTING")
+    os.environ["MEMORY_VAULT_TESTING"] = "1"
+    yield
+    if old_val is None:
+        os.environ.pop("MEMORY_VAULT_TESTING", None)
+    else:
+        os.environ["MEMORY_VAULT_TESTING"] = old_val
+
+
 @pytest.fixture
 def temp_vault_dir(tmp_path):
     """Create a temporary directory for vault data."""

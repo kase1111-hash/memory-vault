@@ -8,13 +8,14 @@ import uuid
 import hashlib
 import base64
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 from nacl.utils import random as nacl_random
 
 # Support both package and direct imports
 try:
-    from .models import MemoryObject
+    from .models import MemoryObject, VALID_CREATORS
     from .crypto import (
         derive_key_from_passphrase,
         load_key_from_file,
@@ -41,7 +42,7 @@ try:
         PhysicalTokenError,
     )
 except ImportError:
-    from models import MemoryObject
+    from models import MemoryObject, VALID_CREATORS
     from crypto import (
         derive_key_from_passphrase,
         load_key_from_file,
@@ -81,8 +82,9 @@ class MemoryVault:
         """
         self.db_path = db_path if db_path else DB_PATH
         self._conn = init_db(self.db_path)
-        self.profile_keys = {}  # Cache non-TPM keys
-        self.signing_key = load_or_create_signing_key()  # For signed Merkle roots
+        self._key_cache = {}  # {profile_id: (key_bytes, expiry_time)}
+        self._key_ttl = 300  # 5 minutes
+        self._signing_key = None  # Lazy-loaded via property
         self._boundary_client = BoundaryClient()
         self._memory_auditors = []  # Registered recall audit callbacks
 
@@ -91,8 +93,39 @@ class MemoryVault:
         """Get the existing database connection."""
         return self._conn
 
+    @property
+    def signing_key(self):
+        """Lazy-load the Ed25519 signing key on first use."""
+        if self._signing_key is None:
+            self._signing_key = load_or_create_signing_key()
+        return self._signing_key
+
+    @signing_key.setter
+    def signing_key(self, value):
+        self._signing_key = value
+
+    def _cache_key(self, profile_id: str, key: bytes):
+        """Cache a key with TTL."""
+        self._key_cache[profile_id] = (key, time.monotonic() + self._key_ttl)
+
+    def _get_cached_key(self, profile_id: str) -> bytes | None:
+        """Get a cached key if it exists and hasn't expired."""
+        entry = self._key_cache.get(profile_id)
+        if entry is None:
+            return None
+        key, expiry = entry
+        if time.monotonic() > expiry:
+            del self._key_cache[profile_id]
+            return None
+        return key
+
+    def _clear_key_cache(self):
+        """Clear all cached keys."""
+        self._key_cache.clear()
+
     def close(self):
         """Close the vault and cleanup resources."""
+        self._clear_key_cache()
         if self._conn:
             self._conn.close()
             self._conn = None
@@ -159,7 +192,7 @@ class MemoryVault:
         # If passphrase provided, cache the derived key for later use
         if passphrase and key_source == "HumanPassphrase":
             key, _ = derive_key_from_passphrase(passphrase)
-            self.profile_keys[profile_id] = key
+            self._cache_key(profile_id, key)
 
         print(f"Created profile: {profile_id} ({key_source})")
         return profile_id
@@ -177,8 +210,9 @@ class MemoryVault:
     # ==================== Key Handling ====================
 
     def _get_or_prompt_key(self, profile_id: str, key_source: str, salt: bytes = None) -> bytes:
-        if profile_id in self.profile_keys:
-            return self.profile_keys[profile_id]
+        cached = self._get_cached_key(profile_id)
+        if cached is not None:
+            return cached
 
         if key_source == "HumanPassphrase":
             passphrase = getpass.getpass(f"Enter passphrase for profile '{profile_id}': ")
@@ -189,7 +223,7 @@ class MemoryVault:
         else:
             raise ValueError("Unsupported key_source in cache path")
 
-        self.profile_keys[profile_id] = key
+        self._cache_key(profile_id, key)
         return key
 
     # ==================== Memory Operations ====================
@@ -207,6 +241,9 @@ class MemoryVault:
         """
         if not 0 <= obj.classification <= 5:
             raise ValueError("Classification must be 0-5")
+
+        if obj.created_by not in VALID_CREATORS:
+            raise ValueError(f"created_by must be one of {VALID_CREATORS}")
 
         c = self._conn.cursor()
         c.execute('SELECT key_source FROM encryption_profiles WHERE profile_id = ?', (obj.encryption_profile,))
@@ -233,7 +270,7 @@ class MemoryVault:
             # If passphrase provided, derive and cache the key
             if passphrase and key_source == "HumanPassphrase":
                 key, _ = derive_key_from_passphrase(passphrase, salt)
-                self.profile_keys[obj.encryption_profile] = key
+                self._cache_key(obj.encryption_profile, key)
             else:
                 key = self._get_or_prompt_key(obj.encryption_profile, key_source, salt)
             ciphertext, nonce = encrypt_memory(key, obj.content_plaintext)
@@ -272,7 +309,6 @@ class MemoryVault:
         justification: str = "",
         requester: str = "agent",
         passphrase: str = None,
-        skip_boundary_check: bool = False
     ) -> bytes:
         """
         Recall a memory from the vault.
@@ -282,7 +318,6 @@ class MemoryVault:
             justification: Reason for recall (required for audit)
             requester: Who is requesting the recall
             passphrase: Optional passphrase for HumanPassphrase profiles
-            skip_boundary_check: Skip boundary daemon check (for testing)
 
         Returns:
             Decrypted memory content
@@ -336,8 +371,9 @@ class MemoryVault:
         if not access_policy:
             access_policy = {"cooldown_seconds": 0}
 
-        # 1. Boundary check (skip if requested, e.g., for testing)
-        if not skip_boundary_check:
+        # 1. Boundary check (skipped only when MEMORY_VAULT_TESTING=1)
+        _skip_boundary = os.environ.get("MEMORY_VAULT_TESTING") == "1"
+        if not _skip_boundary:
             permitted, boundary_reason = check_recall(classification)
             if not permitted:
                 self._log_recall(c, memory_id, requester, False, justification + f" | boundary: {boundary_reason}")
@@ -405,16 +441,17 @@ class MemoryVault:
                 key = tpm_unseal_key(sealed_blob)
             elif passphrase and key_source == "HumanPassphrase":
                 key, _ = derive_key_from_passphrase(passphrase, salt)
-                self.profile_keys[encryption_profile] = key
+                self._cache_key(encryption_profile, key)
             else:
                 key = self._get_or_prompt_key(encryption_profile, key_source, salt)
         except MemoryVaultError:
             raise
         except Exception as e:
+            logger.error("Key access failed for profile '%s': %s", encryption_profile, e)
             self._log_recall(c, memory_id, requester, False, f"key error: {e}")
             self._conn.commit()
             exc = ProfileKeyMissingError(
-                f"Key access failed: {e}"
+                "Key access failed"
             )
             raise exc from e
 
@@ -1347,8 +1384,7 @@ class MemoryVault:
             print(f"⚠️  IMPORTANT: Securely delete {old_keyfile_backup} after verifying rotation!")
 
         # Clear cached key
-        if profile_id in self.profile_keys:
-            del self.profile_keys[profile_id]
+        self._key_cache.pop(profile_id, None)
 
         print("\n" + "="*50)
         print("✓ KEY ROTATION COMPLETE")

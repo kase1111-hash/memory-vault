@@ -4,12 +4,31 @@
 # against supply chain attacks. Use for production deployments:
 #   pip install --require-hashes -r requirements-lock.txt
 #
-# To regenerate after a dependency update:
+# To regenerate this file after a dependency update:
+#   pip-compile --generate-hashes --output-file=requirements-lock.txt requirements.txt
+#   # Or manually:
 #   pip download <pkg>==<ver> -d /tmp/hashes --no-deps
 #   pip hash /tmp/hashes/<pkg>-<ver>-*.whl
 #
-# Last updated: 2026-02-20
+# IMPORTANT: All optional dependencies (fido2, pyotp, tpm2-pytss) and their
+# transitive dependencies should also be pinned here when used in production.
+# Run `pip-compile` with the appropriate extras to generate a complete lock file:
+#   pip-compile --generate-hashes --extra=all --output-file=requirements-lock.txt pyproject.toml
+#
+# Last updated: 2026-03-12
 
 # Core cryptography (required)
 pynacl==1.6.2 \
     --hash=sha256:c8a231e36ec2cab018c4ad4358c386e36eede0319a0c41fed24f840b1dac59f6
+
+# NOTE: Optional dependencies below need hash-pinning before production use.
+# Uncomment and add hashes after running pip-compile or pip hash.
+#
+# fido2==1.2.0 \
+#     --hash=sha256:<hash>
+#
+# pyotp==2.9.0 \
+#     --hash=sha256:<hash>
+#
+# tpm2-pytss==2.3.0 \
+#     --hash=sha256:<hash>

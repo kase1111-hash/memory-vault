@@ -164,6 +164,23 @@ def init_db(db_path: str = None):
         c.execute("ALTER TABLE memories ADD COLUMN chain_anchor_id TEXT")
         print("Added 'chain_anchor_id' column to memories")
 
+    # --- Signing Key Revocation Table ---
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS revoked_signing_keys (
+            epoch INTEGER PRIMARY KEY,
+            public_key_b64 TEXT NOT NULL,
+            revoked_at TEXT NOT NULL,
+            reason TEXT
+        )
+    ''')
+
+    # --- Signing Key Epoch Column on Merkle Roots ---
+    c.execute("PRAGMA table_info(merkle_roots)")
+    merkle_root_columns = [col[1] for col in c.fetchall()]
+    if 'key_epoch' not in merkle_root_columns:
+        c.execute("ALTER TABLE merkle_roots ADD COLUMN key_epoch INTEGER DEFAULT 0")
+        print("Added 'key_epoch' column to merkle_roots")
+
     # --- Escrow Shards Table ---
     c.execute('''
         CREATE TABLE IF NOT EXISTS escrow_shards (
@@ -349,13 +366,21 @@ def get_connection(db_path: str = None):
     Returns:
         sqlite3.Connection: Connection to the database.
     """
+    ensure_initialized(db_path)
     path = db_path if db_path else DB_PATH
     return sqlite3.connect(path)
 
 
-# Auto-initialize (close the connection after initialization)
-_conn = init_db()
-_conn.close()
+_initialized = False
+
+
+def ensure_initialized(db_path: str = None):
+    """Lazily initialize the database on first use."""
+    global _initialized
+    if not _initialized:
+        conn = init_db(db_path)
+        conn.close()
+        _initialized = True
 
 
 # === Full-Text Search Helpers ===
