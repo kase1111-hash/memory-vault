@@ -4,6 +4,7 @@ Tests for boundary.py - Boundary daemon client.
 Tests data structures, error handling, and client behavior
 without requiring a running boundary daemon.
 """
+
 import os
 import sys
 
@@ -127,6 +128,7 @@ class TestLegacyCheckRecall:
     def test_returns_tuple(self, monkeypatch):
         """check_recall returns (bool, str) tuple."""
         import boundary
+
         # Reset global client so it reconnects with bad socket
         monkeypatch.setattr(boundary, "_global_client", None)
         monkeypatch.setattr(boundary, "SOCKET_PATH", "/tmp/nonexistent_socket_12345.sock")
@@ -139,6 +141,7 @@ class TestLegacyCheckRecall:
     def test_low_classification_fails_open_when_daemon_unreachable(self, monkeypatch):
         """Levels 0-2 remain recallable when the boundary daemon is absent."""
         import boundary
+
         monkeypatch.setattr(boundary, "_global_client", None)
         monkeypatch.setattr(boundary, "SOCKET_PATH", "/tmp/nonexistent_socket_12345.sock")
         for level in (0, 1, 2):
@@ -148,6 +151,7 @@ class TestLegacyCheckRecall:
     def test_high_classification_fails_closed_when_daemon_unreachable(self, monkeypatch):
         """Levels 3+ are denied when the boundary daemon is absent."""
         import boundary
+
         monkeypatch.setattr(boundary, "_global_client", None)
         monkeypatch.setattr(boundary, "SOCKET_PATH", "/tmp/nonexistent_socket_12345.sock")
         for level in (3, 4, 5):
@@ -160,6 +164,7 @@ class TestGetClient:
 
     def test_returns_boundary_client(self, monkeypatch):
         import boundary
+
         monkeypatch.setattr(boundary, "_global_client", None)
         client = get_client()
         assert isinstance(client, BoundaryClient)

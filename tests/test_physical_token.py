@@ -3,6 +3,7 @@ Tests for physical_token.py - Token availability and setup.
 
 Tests that can run without actual hardware tokens.
 """
+
 import os
 import sys
 

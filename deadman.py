@@ -30,7 +30,7 @@ def init_deadman_switch():
     c = conn.cursor()
 
     # Main DMS state
-    c.execute('''
+    c.execute("""
         CREATE TABLE IF NOT EXISTS deadman_switch (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             armed BOOLEAN NOT NULL DEFAULT 0,
@@ -39,10 +39,10 @@ def init_deadman_switch():
             payload_memory_ids TEXT,          -- JSON list
             justification TEXT
         )
-    ''')
+    """)
 
     # Heirs and encrypted payloads
-    c.execute('''
+    c.execute("""
         CREATE TABLE IF NOT EXISTS dms_heirs (
             heir_id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
@@ -50,7 +50,7 @@ def init_deadman_switch():
             encrypted_payload BLOB,           -- SealedBox encrypted JSON payload
             memory_ids TEXT                   -- JSON list (reference only)
         )
-    ''')
+    """)
 
     # Ensure single-row constraint
     c.execute("INSERT OR IGNORE INTO deadman_switch (id, armed) VALUES (1, 0)")
@@ -62,6 +62,7 @@ def add_heir(name: str, public_key_b64: str) -> None:
     """Add a trusted heir with their public key (age format)"""
     try:
         from nacl.public import PublicKey
+
         pubkey_bytes = base64.b64decode(public_key_b64)
         SealedBox(PublicKey(pubkey_bytes))  # Validate
     except Exception:
@@ -71,8 +72,7 @@ def add_heir(name: str, public_key_b64: str) -> None:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     try:
-        c.execute("INSERT INTO dms_heirs (name, public_key_b64) VALUES (?, ?)",
-                  (name, public_key_b64))
+        c.execute("INSERT INTO dms_heirs (name, public_key_b64) VALUES (?, ?)", (name, public_key_b64))
         conn.commit()
         print(f"Heir '{name}' added successfully")
     except sqlite3.IntegrityError:
@@ -106,7 +106,8 @@ def arm_deadman_switch(deadline_days: int, memory_ids: List[str], justification:
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('''
+    c.execute(
+        """
         UPDATE deadman_switch SET
             armed = 1,
             deadline = ?,
@@ -114,7 +115,9 @@ def arm_deadman_switch(deadline_days: int, memory_ids: List[str], justification:
             payload_memory_ids = ?,
             justification = ?
         WHERE id = 1
-    ''', (deadline, checkin, json.dumps(memory_ids), justification))
+    """,
+        (deadline, checkin, json.dumps(memory_ids), justification),
+    )
     conn.commit()
     conn.close()
 
@@ -196,7 +199,7 @@ def encrypt_payload_for_heirs(vault) -> None:
     payload = {
         "release_trigger": "deadman_switch",
         "release_date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "memories": plaintext_memories
+        "memories": plaintext_memories,
     }
     payload_json = json.dumps(payload, indent=2).encode()
 
@@ -209,11 +212,14 @@ def encrypt_payload_for_heirs(vault) -> None:
         pubkey = PublicKey(base64.b64decode(pub_b64))
         box = SealedBox(pubkey)
         encrypted = box.encrypt(payload_json)
-        c.execute('''
+        c.execute(
+            """
             UPDATE dms_heirs
             SET encrypted_payload = ?, memory_ids = ?
             WHERE heir_id = ?
-        ''', (encrypted, json.dumps(memory_ids), heir_id))
+        """,
+            (encrypted, json.dumps(memory_ids), heir_id),
+        )
         print(f"Encrypted for {name}")
 
     conn.commit()
@@ -225,19 +231,21 @@ def get_heir_release_packages() -> List[dict]:
     """Export encrypted packages for delivery"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('''
+    c.execute("""
         SELECT name, public_key_b64, encrypted_payload, memory_ids
         FROM dms_heirs WHERE encrypted_payload IS NOT NULL
-    ''')
+    """)
     packages = []
     for name, pubkey, enc_blob, mids_json in c.fetchall():
         if enc_blob:
-            packages.append({
-                "heir": name,
-                "public_key_b64": pubkey,
-                "encrypted_payload_b64": base64.b64encode(enc_blob).decode(),
-                "memory_ids": json.loads(mids_json) if mids_json else []
-            })
+            packages.append(
+                {
+                    "heir": name,
+                    "public_key_b64": pubkey,
+                    "encrypted_payload_b64": base64.b64encode(enc_blob).decode(),
+                    "memory_ids": json.loads(mids_json) if mids_json else [],
+                }
+            )
     conn.close()
     return packages
 

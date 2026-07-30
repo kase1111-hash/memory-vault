@@ -1,6 +1,7 @@
 """
 Tests for errors.py - Exception hierarchy and severity levels.
 """
+
 import os
 import sys
 
@@ -129,16 +130,12 @@ class TestBoundaryErrors:
         assert err.severity == Severity.CRITICAL
 
     def test_boundary_connection_error(self):
-        err = BoundaryConnectionError(
-            "socket not found", socket_path="/tmp/test.sock"
-        )
+        err = BoundaryConnectionError("socket not found", socket_path="/tmp/test.sock")
         assert isinstance(err, BoundaryError)
         assert err.socket_path == "/tmp/test.sock"
 
     def test_boundary_denied_error(self):
-        err = BoundaryDeniedError(
-            "denied", operational_mode="airgap", reason="restricted"
-        )
+        err = BoundaryDeniedError("denied", operational_mode="airgap", reason="restricted")
         assert err.severity == Severity.SECURITY_VIOLATION
         assert err.outcome == "blocked"
         assert err.operational_mode == "airgap"
@@ -182,13 +179,23 @@ class TestInheritanceChain:
 
     def test_all_inherit_from_base(self):
         simple_subclasses = [
-            CryptoError, DecryptionError,
-            AccessError, CooldownError,
-            ApprovalRequiredError, LockdownError, TombstoneError,
-            BoundaryError, BoundaryConnectionError, BoundaryDeniedError,
-            BoundaryTimeoutError, DatabaseError, MemoryNotFoundError,
-            ProfileError, ProfileKeyMissingError,
-            HardwareSecurityError, PhysicalTokenError,
+            CryptoError,
+            DecryptionError,
+            AccessError,
+            CooldownError,
+            ApprovalRequiredError,
+            LockdownError,
+            TombstoneError,
+            BoundaryError,
+            BoundaryConnectionError,
+            BoundaryDeniedError,
+            BoundaryTimeoutError,
+            DatabaseError,
+            MemoryNotFoundError,
+            ProfileError,
+            ProfileKeyMissingError,
+            HardwareSecurityError,
+            PhysicalTokenError,
         ]
         for cls in simple_subclasses:
             err = cls("test")

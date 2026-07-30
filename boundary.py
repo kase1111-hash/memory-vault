@@ -34,25 +34,24 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Socket path is configurable via environment variable, defaults to standard Agent-OS path
-SOCKET_PATH = os.environ.get(
-    "MEMORY_VAULT_BOUNDARY_SOCKET",
-    os.path.expanduser("~/.agent-os/api/boundary.sock")
-)
+SOCKET_PATH = os.environ.get("MEMORY_VAULT_BOUNDARY_SOCKET", os.path.expanduser("~/.agent-os/api/boundary.sock"))
 DEFAULT_TIMEOUT = 5.0
 MAX_RESPONSE_SIZE = 65536
 
 
 class OperationalMode(Enum):
     """Operational modes supported by boundary-daemon."""
-    ONLINE = "online"          # Full network access
-    OFFLINE = "offline"        # No external network
-    AIRGAP = "airgap"          # Complete isolation
-    COLDROOM = "coldroom"      # Minimal operations only
+
+    ONLINE = "online"  # Full network access
+    OFFLINE = "offline"  # No external network
+    AIRGAP = "airgap"  # Complete isolation
+    COLDROOM = "coldroom"  # Minimal operations only
 
 
 @dataclass
 class BoundaryStatus:
     """Current boundary daemon status."""
+
     connected: bool
     operational_mode: Optional[OperationalMode]
     restrictions: Dict[str, Any]
@@ -103,7 +102,7 @@ class BoundaryClient:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
                 s.settimeout(self.timeout)
                 s.connect(self.socket_path)
-                s.sendall(json.dumps(request).encode('utf-8') + b'\n')
+                s.sendall(json.dumps(request).encode("utf-8") + b"\n")
 
                 # Read response (may be fragmented)
                 chunks = []
@@ -115,12 +114,10 @@ class BoundaryClient:
                     chunks.append(chunk)
                     total_size += len(chunk)
                     if total_size > MAX_RESPONSE_SIZE:
-                        raise BoundaryError(
-                            "Response too large from boundary daemon"
-                        )
+                        raise BoundaryError("Response too large from boundary daemon")
                     # Check for complete JSON
                     try:
-                        data = b''.join(chunks).decode('utf-8')
+                        data = b"".join(chunks).decode("utf-8")
                         return json.loads(data)
                     except json.JSONDecodeError:
                         continue
@@ -129,30 +126,17 @@ class BoundaryClient:
 
         except FileNotFoundError as e:
             raise BoundaryConnectionError(
-                "Boundary daemon socket not found (offline/airgap mode?)",
-                socket_path=self.socket_path
+                "Boundary daemon socket not found (offline/airgap mode?)", socket_path=self.socket_path
             ) from e
         except ConnectionRefusedError as e:
-            raise BoundaryConnectionError(
-                "Boundary daemon not running",
-                socket_path=self.socket_path
-            ) from e
+            raise BoundaryConnectionError("Boundary daemon not running", socket_path=self.socket_path) from e
         except socket.timeout as e:
-            raise BoundaryTimeoutError(
-                "Boundary daemon did not respond in time"
-            ) from e
+            raise BoundaryTimeoutError("Boundary daemon did not respond in time") from e
         except OSError as e:
-            raise BoundaryConnectionError(
-                f"Socket error: {e}",
-                socket_path=self.socket_path
-            ) from e
+            raise BoundaryConnectionError(f"Socket error: {e}", socket_path=self.socket_path) from e
 
     def check_recall(
-        self,
-        memory_class: int,
-        memory_id: str = None,
-        requester: str = None,
-        justification: str = None
+        self, memory_class: int, memory_id: str = None, requester: str = None, justification: str = None
     ) -> Tuple[bool, str]:
         """Query boundary-daemon for recall permission.
 
@@ -175,8 +159,8 @@ class BoundaryClient:
                 "memory_class": memory_class,
                 "memory_id": memory_id,
                 "requester": requester,
-                "justification": justification
-            }
+                "justification": justification,
+            },
         }
 
         try:
@@ -188,7 +172,7 @@ class BoundaryClient:
                 raise BoundaryDeniedError(
                     f"Recall denied by boundary daemon: {reason}",
                     operational_mode=response.get("operational_mode"),
-                    reason=reason
+                    reason=reason,
                 )
 
             return permitted, reason
@@ -205,10 +189,7 @@ class BoundaryClient:
         Raises:
             BoundaryConnectionError: Cannot connect to daemon
         """
-        request = {
-            "command": "get_mode",
-            "params": {}
-        }
+        request = {"command": "get_mode", "params": {}}
 
         try:
             response = self._send_request(request)
@@ -248,7 +229,7 @@ class BoundaryClient:
                 connected=True,
                 operational_mode=mode,
                 restrictions=response.get("restrictions", {}),
-                last_check=time.time()
+                last_check=time.time(),
             )
 
         except BoundaryConnectionError:
@@ -256,16 +237,12 @@ class BoundaryClient:
                 connected=False,
                 operational_mode=OperationalMode.AIRGAP,  # Assume airgap if can't connect
                 restrictions={"all_network": False},
-                last_check=time.time()
+                last_check=time.time(),
             )
 
         return self._status_cache
 
-    def register_vault(
-        self,
-        vault_id: str,
-        capabilities: Dict[str, Any] = None
-    ) -> bool:
+    def register_vault(self, vault_id: str, capabilities: Dict[str, Any] = None) -> bool:
         """Register this vault instance with boundary-daemon.
 
         Allows boundary-daemon to track and protect vault connections.
@@ -282,13 +259,14 @@ class BoundaryClient:
             "params": {
                 "service_type": "memory_vault",
                 "service_id": vault_id,
-                "capabilities": capabilities or {
+                "capabilities": capabilities
+                or {
                     "encryption": "XSalsa20-Poly1305",
                     "classification_levels": 6,
                     "merkle_audit": True,
-                    "hardware_binding": True
-                }
-            }
+                    "hardware_binding": True,
+                },
+            },
         }
 
         try:
@@ -298,10 +276,7 @@ class BoundaryClient:
             return False
 
     def request_connection_protection(
-        self,
-        connection_type: str,
-        target: str,
-        duration_seconds: int = 300
+        self, connection_type: str, target: str, duration_seconds: int = 300
     ) -> Tuple[bool, Optional[str]]:
         """Request connection protection from boundary-daemon.
 
@@ -321,8 +296,8 @@ class BoundaryClient:
                 "connection_type": connection_type,
                 "target": target,
                 "duration_seconds": duration_seconds,
-                "service_type": "memory_vault"
-            }
+                "service_type": "memory_vault",
+            },
         }
 
         try:
@@ -342,10 +317,7 @@ class BoundaryClient:
         Returns:
             True if released successfully
         """
-        request = {
-            "command": "release_protection",
-            "params": {"protection_token": protection_token}
-        }
+        request = {"command": "release_protection", "params": {"protection_token": protection_token}}
 
         try:
             response = self._send_request(request)

@@ -4,6 +4,7 @@ import uuid
 
 VALID_CREATORS = {"agent", "human", "system"}
 
+
 @dataclass
 class MemoryObject:
     memory_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -18,6 +19,7 @@ class MemoryObject:
     access_policy: dict = None
     audit_proof: str = None  # Future Merkle ref
 
+
 @dataclass
 class EncryptionProfile:
     profile_id: str
@@ -25,6 +27,7 @@ class EncryptionProfile:
     key_source: str = "HumanPassphrase"  # or "File", "TPM"
     rotation_policy: str = "manual"
     exportable: bool = False
+
 
 @dataclass
 class RecallRequest:

@@ -142,7 +142,7 @@ def langchain_adapter():
                 memory_id,
                 justification=justification,
                 passphrase=self.passphrase,
-                    )
+            )
             return content.decode("utf-8")
 
     # Usage

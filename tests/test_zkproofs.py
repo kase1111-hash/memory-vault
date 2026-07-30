@@ -3,6 +3,7 @@ Tests for zkproofs.py - Zero-knowledge proofs and attestations.
 
 Tests pure hash functions, commitment verification, and Ed25519 attestations.
 """
+
 import os
 import sys
 import hashlib
@@ -161,8 +162,6 @@ class TestSignedAttestation:
         assert "version" in msg.lower()
 
     def test_wrong_type(self):
-        valid, msg = verify_signed_attestation(
-            {"version": 1, "type": "other"}, SigningKey.generate().verify_key
-        )
+        valid, msg = verify_signed_attestation({"version": 1, "type": "other"}, SigningKey.generate().verify_key)
         assert valid is False
         assert "type" in msg.lower()

@@ -4,6 +4,7 @@ Tests for escrow.py - Shamir's Secret Sharing and escrow operations.
 Tests the pure GF(256) arithmetic and secret splitting/reconstruction
 without requiring database or physical token access.
 """
+
 import os
 import sys
 
