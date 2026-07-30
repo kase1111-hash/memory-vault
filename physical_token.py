@@ -288,6 +288,21 @@ def setup_hmac_token(secret: bytes = None) -> str:
     return TOKEN_CHALLENGE_PATH
 
 
+def any_token_configured() -> bool:
+    """
+    Return True if at least one physical token mechanism is usable
+    (FIDO2 device present, HMAC secret configured, or TOTP configured).
+    """
+    status = check_token_availability()
+    if status["fido2"]["available"] and status["fido2"]["devices"] > 0:
+        return True
+    if status["hmac"]["configured"]:
+        return True
+    if status["totp"]["available"] and status["totp"]["configured"]:
+        return True
+    return False
+
+
 def check_token_availability() -> dict:
     """
     Check which token methods are available.

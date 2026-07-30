@@ -372,7 +372,7 @@ TPM sealing/unsealing code exists but hasn't been validated on real hardware.
 - **Purpose:** Environmental security enforcement via Unix socket
 - **Socket Path:** `~/.agent-os/api/boundary.sock`
 - **Protocol:** JSON over Unix socket
-- **Behavior:** Fail-closed (all recalls denied if daemon unavailable)
+- **Behavior:** Fail-closed for Level 3+ (denied if daemon unavailable); Levels 0-2 are auto-recall and remain available offline
 - **See:** `docs/INTEGRATIONS.md` Section 1
 
 ### 19.2 IntentLog

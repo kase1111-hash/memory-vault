@@ -1,6 +1,5 @@
 # memory_vault/vault.py
 
-import sqlite3
 import json
 import getpass
 import os
@@ -605,13 +604,15 @@ class MemoryVault:
 
             # Check if memory is exportable
             c.execute("""
-                SELECT exportable FROM encryption_profiles
+                SELECT exportable, key_source FROM encryption_profiles
                 WHERE profile_id = ?
             """, (memory_dict["encryption_profile"],))
             profile_row = c.fetchone()
 
-            if profile_row and not profile_row[0]:
-                # Non-exportable (e.g., TPM-sealed) - zero out ciphertext
+            if profile_row and not profile_row[0] and profile_row[1] == "TPM":
+                # Non-exportable hardware-bound (TPM-sealed) keys cannot leave
+                # this device - zero out ciphertext. Passphrase/keyfile memories
+                # stay encrypted with their profile key and are safe to export.
                 print(f"Warning: Memory {memory_dict['memory_id']} is non-exportable, excluding from backup")
                 memory_dict["ciphertext"] = None
                 memory_dict["nonce"] = None
@@ -739,6 +740,12 @@ class MemoryVault:
         skipped_count = 0
 
         for memory in backup_data["memories"]:
+            # Non-exportable memories were excluded from the backup (null ciphertext)
+            if not memory["ciphertext"]:
+                print(f"Warning: Memory {memory['memory_id']} has no ciphertext in backup (non-exportable), skipping")
+                skipped_count += 1
+                continue
+
             # Check if memory already exists
             c.execute("SELECT 1 FROM memories WHERE memory_id = ?", (memory["memory_id"],))
             if c.fetchone():
@@ -1036,20 +1043,23 @@ class MemoryVault:
             bool: True if lockdown was activated
         """
         try:
-            from .physical_token import require_physical_token
+            from .physical_token import require_physical_token, any_token_configured
         except ImportError:
-            from physical_token import require_physical_token
+            from physical_token import require_physical_token, any_token_configured
 
         print("\n" + "="*50)
         print("⚠️  VAULT LOCKDOWN REQUESTED")
         print("="*50)
         print(f"\nReason: {reason}")
         print("\nThis will DISABLE ALL memory recalls until unlocked.")
-        print("Physical token authentication required.\n")
 
-        if not require_physical_token("Enter vault lockdown"):
-            print("Lockdown aborted: Physical token required")
-            return False
+        if any_token_configured():
+            print("Physical token authentication required.\n")
+            if not require_physical_token("Enter vault lockdown"):
+                print("Lockdown aborted: Physical token required")
+                return False
+        else:
+            print("No physical token configured — proceeding with confirmation only.\n")
 
         confirm = input("Type 'LOCKDOWN VAULT' to confirm: ").strip()
         if confirm != "LOCKDOWN VAULT":
@@ -1087,9 +1097,9 @@ class MemoryVault:
             bool: True if lockdown was deactivated
         """
         try:
-            from .physical_token import require_physical_token
+            from .physical_token import require_physical_token, any_token_configured
         except ImportError:
-            from physical_token import require_physical_token
+            from physical_token import require_physical_token, any_token_configured
 
         is_locked, since, reason = self.is_locked_down()
         if not is_locked:
@@ -1101,11 +1111,14 @@ class MemoryVault:
         print("="*50)
         print(f"\nLocked since: {since}")
         print(f"Reason: {reason}")
-        print("\nBoth physical token AND passphrase required to unlock.\n")
 
-        if not require_physical_token("Exit vault lockdown"):
-            print("Unlock aborted: Physical token required")
-            return False
+        if any_token_configured():
+            print("\nBoth physical token AND passphrase required to unlock.\n")
+            if not require_physical_token("Exit vault lockdown"):
+                print("Unlock aborted: Physical token required")
+                return False
+        else:
+            print("\nNo physical token configured — passphrase verification required.\n")
 
         if passphrase is None:
             passphrase = getpass.getpass("Enter unlock passphrase: ")
@@ -1227,9 +1240,9 @@ class MemoryVault:
             bool: True if rotation was successful
         """
         try:
-            from .physical_token import require_physical_token
+            from .physical_token import require_physical_token, any_token_configured
         except ImportError:
-            from physical_token import require_physical_token
+            from physical_token import require_physical_token, any_token_configured
 
         # Security: Validate profile_id to prevent path traversal
         validate_profile_id(profile_id)
@@ -1270,11 +1283,13 @@ class MemoryVault:
         if key_source == "KeyFile":
             print("\n⚠️  WARNING: After rotation, securely destroy the OLD keyfile!")
 
-        print("\nPhysical token required for key rotation.\n")
-
-        if not require_physical_token("Rotate encryption key"):
-            print("Rotation aborted: Physical token required")
-            return False
+        if any_token_configured():
+            print("\nPhysical token required for key rotation.\n")
+            if not require_physical_token("Rotate encryption key"):
+                print("Rotation aborted: Physical token required")
+                return False
+        else:
+            print("\nNo physical token configured — proceeding with confirmation only.\n")
 
         # Get current key
         print("\n--- Current Key ---")
@@ -1415,9 +1430,9 @@ class MemoryVault:
             bool: True if tombstoned successfully
         """
         try:
-            from .physical_token import require_physical_token
+            from .physical_token import require_physical_token, any_token_configured
         except ImportError:
-            from physical_token import require_physical_token
+            from physical_token import require_physical_token, any_token_configured
 
         c = self._conn.cursor()
 
@@ -1444,8 +1459,8 @@ class MemoryVault:
             print("\nThis will mark the memory as INACCESSIBLE.")
             print("The memory will be retained for audit but cannot be recalled.")
 
-            # Level 3+ requires physical token
-            if classification >= 3:
+            # Level 3+ requires physical token when one is configured
+            if classification >= 3 and any_token_configured():
                 print("\nPhysical token required for Level 3+ tombstoning.\n")
                 if not require_physical_token("Tombstone high-security memory"):
                     print("Tombstone aborted: Physical token required")

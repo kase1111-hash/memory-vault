@@ -133,7 +133,26 @@ class TestLegacyCheckRecall:
         permitted, reason = check_recall(memory_class=0)
         assert isinstance(permitted, bool)
         assert isinstance(reason, str)
-        assert permitted is False  # Can't connect
+        # Levels 0-2 are auto-recall: unreachable daemon does not block them
+        assert permitted is True
+
+    def test_low_classification_fails_open_when_daemon_unreachable(self, monkeypatch):
+        """Levels 0-2 remain recallable when the boundary daemon is absent."""
+        import boundary
+        monkeypatch.setattr(boundary, "_global_client", None)
+        monkeypatch.setattr(boundary, "SOCKET_PATH", "/tmp/nonexistent_socket_12345.sock")
+        for level in (0, 1, 2):
+            permitted, _ = check_recall(memory_class=level)
+            assert permitted is True
+
+    def test_high_classification_fails_closed_when_daemon_unreachable(self, monkeypatch):
+        """Levels 3+ are denied when the boundary daemon is absent."""
+        import boundary
+        monkeypatch.setattr(boundary, "_global_client", None)
+        monkeypatch.setattr(boundary, "SOCKET_PATH", "/tmp/nonexistent_socket_12345.sock")
+        for level in (3, 4, 5):
+            permitted, _ = check_recall(memory_class=level)
+            assert permitted is False
 
 
 class TestGetClient:

@@ -185,7 +185,10 @@ def create_escrow(
     Returns:
         escrow_id: Unique identifier for this escrow
     """
-    from .physical_token import require_physical_token
+    try:
+        from .physical_token import require_physical_token, any_token_configured
+    except ImportError:
+        from physical_token import require_physical_token, any_token_configured
 
     # Security: Validate profile_id to prevent path traversal
     validate_profile_id(profile_id)
@@ -206,11 +209,13 @@ def create_escrow(
     for name, _ in recipients:
         print(f"  - {name}")
 
-    print("\nPhysical token required for escrow creation.\n")
-
-    if not require_physical_token("Create key escrow"):
-        print("Escrow aborted: Physical token required")
-        return None
+    if any_token_configured():
+        print("\nPhysical token required for escrow creation.\n")
+        if not require_physical_token("Create key escrow"):
+            print("Escrow aborted: Physical token required")
+            return None
+    else:
+        print("\nNo physical token configured — proceeding without token authentication.\n")
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -436,7 +441,10 @@ def delete_escrow(escrow_id: str) -> bool:
     Returns:
         bool: True if deleted
     """
-    from .physical_token import require_physical_token
+    try:
+        from .physical_token import require_physical_token, any_token_configured
+    except ImportError:
+        from physical_token import require_physical_token, any_token_configured
 
     info = get_escrow_info(escrow_id)
 
@@ -446,11 +454,14 @@ def delete_escrow(escrow_id: str) -> bool:
     print(f"\nProfile: {info['profile_id']}")
     print(f"Shards: {info['total_shards']}")
     print("\nThis will permanently delete all shards!")
-    print("Physical token required.\n")
 
-    if not require_physical_token("Delete escrow"):
-        print("Deletion aborted: Physical token required")
-        return False
+    if any_token_configured():
+        print("Physical token required.\n")
+        if not require_physical_token("Delete escrow"):
+            print("Deletion aborted: Physical token required")
+            return False
+    else:
+        print("No physical token configured — proceeding with confirmation only.\n")
 
     confirm = input("Type 'DELETE ESCROW' to confirm: ").strip()
     if confirm != "DELETE ESCROW":

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "memory-vault"
-version = "0.2.0-alpha"
+version = "0.2.1-alpha"
 description = "Secure, owner-sovereign, offline-first storage for high-value cognitive artifacts"
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
@@ -62,7 +62,7 @@ dev = [
 ]
 
 [project.scripts]
-memory-vault = "cli:main"
+memory-vault = "memory_vault.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/kase1111-hash/memory-vault"
@@ -70,9 +70,14 @@ Documentation = "https://github.com/kase1111-hash/memory-vault#readme"
 Repository = "https://github.com/kase1111-hash/memory-vault.git"
 Issues = "https://github.com/kase1111-hash/memory-vault/issues"
 
+# The repository uses a flat module layout; map the project root to the
+# `memory_vault` package so `from memory_vault import MemoryVault` and
+# `python -m memory_vault.cli` work after installation.
 [tool.setuptools]
-py-modules = ["vault", "crypto", "db", "models", "merkle", "cli", "boundary", "physical_token", "deadman", "intentlog", "escrow", "zkproofs", "errors"]
-packages = []
+packages = ["memory_vault"]
+
+[tool.setuptools.package-dir]
+memory_vault = "."
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -122,3 +127,4 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Re-exports for public API
 "tests/*" = ["S101", "S105", "S106", "S108"]  # Allow asserts, hardcoded passwords, and temp paths in tests
+"examples/*" = ["S106", "S110"]  # Demo passphrases and simplified error handling in examples

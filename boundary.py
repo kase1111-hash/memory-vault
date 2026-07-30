@@ -14,12 +14,21 @@ from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
-from errors import (
-    BoundaryConnectionError,
-    BoundaryDeniedError,
-    BoundaryTimeoutError,
-    BoundaryError,
-)
+# Support both package and direct imports
+try:
+    from .errors import (
+        BoundaryConnectionError,
+        BoundaryDeniedError,
+        BoundaryTimeoutError,
+        BoundaryError,
+    )
+except ImportError:
+    from errors import (
+        BoundaryConnectionError,
+        BoundaryDeniedError,
+        BoundaryTimeoutError,
+        BoundaryError,
+    )
 
 
 logger = logging.getLogger(__name__)
@@ -386,9 +395,11 @@ def check_recall(memory_class: int) -> Tuple[bool, str]:
         return client.check_recall(memory_class)
     except BoundaryDeniedError as e:
         return False, e.message
-    except BoundaryConnectionError as e:
-        return False, e.message
-    except BoundaryTimeoutError as e:
+    except (BoundaryConnectionError, BoundaryTimeoutError) as e:
+        # Levels 0-2 are auto-recall: an unreachable boundary daemon must not
+        # block them. Levels 3+ fail closed when the daemon cannot be reached.
+        if memory_class <= 2:
+            return True, f"boundary daemon unavailable; Level {memory_class} auto-recall permitted"
         return False, e.message
     except BoundaryError as e:
         return False, f"Boundary daemon error: {e.message}"

@@ -96,10 +96,9 @@ pip install ".[tokens]"
 ```python
 from memory_vault import MemoryVault, MemoryObject
 
-vault = MemoryVault()
-vault.create_profile("default", passphrase="my-secret")
+vault = MemoryVault()  # a "default-passphrase" profile is created automatically
 
-# Store
+# Store (MemoryObject uses the "default-passphrase" profile by default)
 obj = MemoryObject(content_plaintext=b"The user prefers dark mode", classification=1)
 vault.store_memory(obj, passphrase="my-secret")
 
@@ -195,8 +194,8 @@ python -m memory_vault.cli verify-integrity --memory-id <id>
 ### Setup Heirs
 
 ```bash
-# Add heir with their public key (age/x25519)
-python -m memory_vault.cli dms-heir-add "Alice" age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p
+# Add heir with their base64-encoded x25519 public key
+python -m memory_vault.cli dms-heir-add "Alice" "hSDwCYkwp1R0i33ctD73Wg2/Og0mOBr066SpjqqbTmo="
 
 # List heirs
 python -m memory_vault.cli dms-heir-list
@@ -244,7 +243,7 @@ python -m memory_vault.cli search-justifications "emergency"
 
 ```bash
 # Enable lockdown (disables ALL recalls)
-python -m memory_vault.cli lockdown --reason "Security incident"
+python -m memory_vault.cli lockdown "Security incident"
 
 # Check status
 python -m memory_vault.cli lockdown-status
@@ -293,13 +292,13 @@ python -m memory_vault.cli intent-get <memory_id>
 
 ```bash
 # Generate existence commitment (proves memory exists without revealing content)
-python -m memory_vault.cli zk-commitment <memory_id>
+python -m memory_vault.cli zk-commitment <memory_id> --output commitment.json
 
 # Verify an existence commitment
-python -m memory_vault.cli zk-verify <commitment_json>
+python -m memory_vault.cli zk-verify commitment.json <memory_id> <created_at_iso>
 
 # Generate time-bound existence proof
-python -m memory_vault.cli zk-time-proof <memory_id>
+python -m memory_vault.cli zk-time-proof <memory_id> <before_timestamp_iso>
 ```
 
 ## Key Escrow (Shamir's Secret Sharing)

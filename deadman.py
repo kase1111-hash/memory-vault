@@ -12,14 +12,14 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import List
 
-from nacl.public import SealedBox
+from nacl.public import PublicKey, SealedBox
 import base64
 
 try:
-    from memory_vault.physical_token import require_physical_token
+    from memory_vault.physical_token import require_physical_token, any_token_configured
     from memory_vault.db import DB_PATH
 except ImportError:
-    from physical_token import require_physical_token
+    from physical_token import require_physical_token, any_token_configured
     from db import DB_PATH
 DMS_CONFIG_PATH = os.path.expanduser("~/.memory_vault/deadman_config.json")
 
@@ -97,7 +97,7 @@ def arm_deadman_switch(deadline_days: int, memory_ids: List[str], justification:
         print("Aborted")
         return
 
-    if not require_physical_token("Arm dead-man switch"):
+    if any_token_configured() and not require_physical_token("Arm dead-man switch"):
         print("Physical token required")
         return
 
@@ -126,7 +126,7 @@ def arm_deadman_switch(deadline_days: int, memory_ids: List[str], justification:
 
 def checkin_deadman_switch() -> bool:
     print("[DEAD-MAN CHECKIN]")
-    if not require_physical_token("Dead-man checkin"):
+    if any_token_configured() and not require_physical_token("Dead-man checkin"):
         return False
 
     conn = sqlite3.connect(DB_PATH)
@@ -177,7 +177,7 @@ def encrypt_payload_for_heirs(vault) -> None:
         return
 
     print(f"Encrypting payload ({len(memory_ids)} memories) for heirs...")
-    if not require_physical_token("Encrypt DMS payload for heirs"):
+    if any_token_configured() and not require_physical_token("Encrypt DMS payload for heirs"):
         return
 
     # Recall and assemble plaintext payload
@@ -206,7 +206,7 @@ def encrypt_payload_for_heirs(vault) -> None:
     heirs = c.fetchall()
 
     for heir_id, name, pub_b64 in heirs:
-        pubkey = base64.b64decode(pub_b64)
+        pubkey = PublicKey(base64.b64decode(pub_b64))
         box = SealedBox(pubkey)
         encrypted = box.encrypt(payload_json)
         c.execute('''
@@ -244,7 +244,7 @@ def get_heir_release_packages() -> List[dict]:
 
 def disarm_deadman_switch() -> None:
     print("[DEAD-MAN SWITCH] DISARM")
-    if not require_physical_token("Disarm dead-man switch"):
+    if any_token_configured() and not require_physical_token("Disarm dead-man switch"):
         return
     confirm = input("Type 'DISARM DEADMAN SWITCH FOREVER' to confirm: ")
     if confirm != "DISARM DEADMAN SWITCH FOREVER":
