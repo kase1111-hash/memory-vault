@@ -49,10 +49,13 @@ def generate_existence_commitment(memory_id: str) -> dict:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    c.execute("""
+    c.execute(
+        """
         SELECT memory_id, content_hash, created_at, classification, tombstoned
         FROM memories WHERE memory_id = ?
-    """, (memory_id,))
+    """,
+        (memory_id,),
+    )
     row = c.fetchone()
 
     if not row:
@@ -87,17 +90,13 @@ def generate_existence_commitment(memory_id: str) -> dict:
         "timestamp_commitment": timestamp_commitment,
         "classification": classification,
         "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
-        "verification_hint": "Verify with original memory_id, created_at timestamp"
+        "verification_hint": "Verify with original memory_id, created_at timestamp",
     }
 
     return commitment
 
 
-def verify_existence_commitment(
-    commitment: dict,
-    memory_id: str,
-    created_at: str
-) -> Tuple[bool, str]:
+def verify_existence_commitment(commitment: dict, memory_id: str, created_at: str) -> Tuple[bool, str]:
     """
     Verify an existence commitment against known memory details.
 
@@ -160,10 +159,13 @@ def generate_content_proof(memory_id: str, content_hash_claim: str) -> dict:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    c.execute("""
+    c.execute(
+        """
         SELECT content_hash, classification, tombstoned
         FROM memories WHERE memory_id = ?
-    """, (memory_id,))
+    """,
+        (memory_id,),
+    )
     row = c.fetchone()
 
     if not row:
@@ -177,7 +179,7 @@ def generate_content_proof(memory_id: str, content_hash_claim: str) -> dict:
         raise ValueError("Cannot create proof for tombstoned memory")
 
     # Check if claim matches
-    matches = (stored_hash == content_hash_claim)
+    matches = stored_hash == content_hash_claim
 
     # Create proof
     proof = {
@@ -187,7 +189,7 @@ def generate_content_proof(memory_id: str, content_hash_claim: str) -> dict:
         "claimed_hash": content_hash_claim,
         "matches": matches,
         "classification": classification,
-        "generated_at": datetime.now(timezone.utc).isoformat() + "Z"
+        "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
     }
 
     # Sign the proof
@@ -214,10 +216,13 @@ def generate_time_bound_proof(memory_id: str, before_timestamp: str) -> dict:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    c.execute("""
+    c.execute(
+        """
         SELECT created_at, content_hash, classification, tombstoned
         FROM memories WHERE memory_id = ?
-    """, (memory_id,))
+    """,
+        (memory_id,),
+    )
     row = c.fetchone()
 
     if not row:
@@ -244,7 +249,7 @@ def generate_time_bound_proof(memory_id: str, before_timestamp: str) -> dict:
         "before_timestamp": before_timestamp,
         "existed_before": existed_before,
         "classification": classification,
-        "generated_at": datetime.now(timezone.utc).isoformat() + "Z"
+        "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
     }
 
     # Create verifiable hash
@@ -254,11 +259,7 @@ def generate_time_bound_proof(memory_id: str, before_timestamp: str) -> dict:
     return proof
 
 
-def generate_signed_attestation(
-    memory_id: str,
-    signing_key: SigningKey,
-    statement: str
-) -> dict:
+def generate_signed_attestation(memory_id: str, signing_key: SigningKey, statement: str) -> dict:
     """
     Generate a signed attestation about a memory.
 
@@ -276,10 +277,13 @@ def generate_signed_attestation(
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    c.execute("""
+    c.execute(
+        """
         SELECT content_hash, classification, created_at, tombstoned
         FROM memories WHERE memory_id = ?
-    """, (memory_id,))
+    """,
+        (memory_id,),
+    )
     row = c.fetchone()
 
     if not row:
@@ -300,7 +304,7 @@ def generate_signed_attestation(
         "classification": classification,
         "statement": statement,
         "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
-        "signer_public_key": base64.b64encode(signing_key.verify_key.encode()).decode()
+        "signer_public_key": base64.b64encode(signing_key.verify_key.encode()).decode(),
     }
 
     # Create message to sign

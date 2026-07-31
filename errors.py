@@ -10,6 +10,7 @@ from enum import IntEnum
 
 class Severity(IntEnum):
     """Severity levels (1-10) for error classification."""
+
     DEBUG = 1
     INFO = 2
     NOTICE = 3
@@ -45,14 +46,17 @@ class MemoryVaultError(Exception):
 # Cryptographic Errors
 # ============================================================================
 
+
 class CryptoError(MemoryVaultError):
     """Base class for cryptographic operation failures."""
+
     severity = Severity.CRITICAL
     action = "crypto.operation"
 
 
 class DecryptionError(CryptoError):
     """Failed to decrypt data. May indicate tampering or wrong key."""
+
     severity = Severity.ALERT
     action = "crypto.decrypt"
 
@@ -61,8 +65,10 @@ class DecryptionError(CryptoError):
 # Access Control Errors
 # ============================================================================
 
+
 class AccessError(MemoryVaultError):
     """Base class for access control violations."""
+
     severity = Severity.WARNING
     action = "access.check"
     outcome = "denied"
@@ -70,6 +76,7 @@ class AccessError(MemoryVaultError):
 
 class CooldownError(AccessError):
     """Access denied due to cooldown period."""
+
     severity = Severity.NOTICE
     action = "access.cooldown"
 
@@ -80,6 +87,7 @@ class CooldownError(AccessError):
 
 class ApprovalRequiredError(AccessError):
     """Operation requires human approval."""
+
     severity = Severity.INFO
     action = "access.approval_required"
     outcome = "blocked"
@@ -87,6 +95,7 @@ class ApprovalRequiredError(AccessError):
 
 class LockdownError(AccessError):
     """Vault is in lockdown mode."""
+
     severity = Severity.ALERT
     action = "access.lockdown"
 
@@ -97,6 +106,7 @@ class LockdownError(AccessError):
 
 class TombstoneError(AccessError):
     """Memory has been tombstoned (permanently sealed)."""
+
     severity = Severity.WARNING
     action = "access.tombstoned"
 
@@ -105,14 +115,17 @@ class TombstoneError(AccessError):
 # Boundary Daemon Errors
 # ============================================================================
 
+
 class BoundaryError(MemoryVaultError):
     """Base class for boundary daemon communication errors."""
+
     severity = Severity.CRITICAL
     action = "boundary.communication"
 
 
 class BoundaryConnectionError(BoundaryError):
     """Failed to connect to boundary daemon."""
+
     action = "boundary.connect"
 
     def __init__(self, message: str, socket_path: str = None):
@@ -122,12 +135,12 @@ class BoundaryConnectionError(BoundaryError):
 
 class BoundaryDeniedError(BoundaryError):
     """Boundary daemon denied the operation."""
+
     severity = Severity.SECURITY_VIOLATION
     action = "boundary.denied"
     outcome = "blocked"
 
-    def __init__(self, message: str, operational_mode: str = None,
-                 reason: str = None):
+    def __init__(self, message: str, operational_mode: str = None, reason: str = None):
         super().__init__(message)
         self.operational_mode = operational_mode
         self.reason = reason
@@ -135,6 +148,7 @@ class BoundaryDeniedError(BoundaryError):
 
 class BoundaryTimeoutError(BoundaryError):
     """Boundary daemon did not respond in time."""
+
     action = "boundary.timeout"
 
 
@@ -142,14 +156,17 @@ class BoundaryTimeoutError(BoundaryError):
 # Database Errors
 # ============================================================================
 
+
 class DatabaseError(MemoryVaultError):
     """Base class for database operation failures."""
+
     severity = Severity.ERROR
     action = "database.operation"
 
 
 class MemoryNotFoundError(DatabaseError):
     """Requested memory does not exist."""
+
     severity = Severity.WARNING
     action = "memory.not_found"
 
@@ -158,14 +175,17 @@ class MemoryNotFoundError(DatabaseError):
 # Profile Errors
 # ============================================================================
 
+
 class ProfileError(MemoryVaultError):
     """Base class for encryption profile errors."""
+
     severity = Severity.ERROR
     action = "profile.operation"
 
 
 class ProfileKeyMissingError(ProfileError):
     """Profile key not loaded or available."""
+
     severity = Severity.WARNING
     action = "profile.key_missing"
 
@@ -174,14 +194,17 @@ class ProfileKeyMissingError(ProfileError):
 # Hardware Security Errors
 # ============================================================================
 
+
 class HardwareSecurityError(MemoryVaultError):
     """Base class for hardware security module errors."""
+
     severity = Severity.CRITICAL
     action = "hardware.security"
 
 
 class PhysicalTokenError(HardwareSecurityError):
     """Physical token required but not present."""
+
     severity = Severity.ALERT
     action = "hardware.physical_token"
     outcome = "blocked"

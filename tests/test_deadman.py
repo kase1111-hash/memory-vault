@@ -4,6 +4,7 @@ Tests for deadman.py - Dead-man switch functionality.
 Tests initialization, heir management, and trigger detection
 using a temporary database.
 """
+
 import os
 import sys
 import sqlite3

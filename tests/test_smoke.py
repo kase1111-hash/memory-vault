@@ -9,6 +9,7 @@ These tests verify that the basic operations work correctly:
 - Backup and restore
 - Integrity verification
 """
+
 import os
 import sys
 import json
@@ -39,13 +40,13 @@ class TestDatabaseInitialization:
         tables = {row[0] for row in cursor.fetchall()}
 
         required_tables = {
-            'encryption_profiles',
-            'memories',
-            'recall_log',
-            'backups',
-            'merkle_leaves',
-            'merkle_roots',
-            'vault_state',
+            "encryption_profiles",
+            "memories",
+            "recall_log",
+            "backups",
+            "merkle_leaves",
+            "merkle_roots",
+            "vault_state",
         }
 
         for table in required_tables:
@@ -129,14 +130,14 @@ class TestMemoryVault:
             profile_id="test-profile",
             cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
-            passphrase=sample_passphrase
+            passphrase=sample_passphrase,
         )
 
         assert profile_id == "test-profile"
 
         # Verify profile exists
         profiles = vault.list_profiles()
-        assert any(p['profile_id'] == 'test-profile' for p in profiles)
+        assert any(p["profile_id"] == "test-profile" for p in profiles)
 
     def test_store_and_recall_memory(self, temp_vault_dir, sample_passphrase, sample_content):
         """Verify memory can be stored and recalled."""
@@ -147,7 +148,7 @@ class TestMemoryVault:
             profile_id="test-profile",
             cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
-            passphrase=sample_passphrase
+            passphrase=sample_passphrase,
         )
 
         # Create memory object
@@ -179,7 +180,7 @@ class TestMemoryVault:
             profile_id="test-profile",
             cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
-            passphrase=sample_passphrase
+            passphrase=sample_passphrase,
         )
 
         memory = MemoryObject(
@@ -195,6 +196,7 @@ class TestMemoryVault:
         # Verify metadata is stored (via search)
         # Note: FTS5 treats hyphens specially, so use quotes for literal search
         from db import search_memories_metadata
+
         results = search_memories_metadata(vault.conn, '"unit-test"')
         assert len(results) > 0
 
@@ -206,7 +208,7 @@ class TestMemoryVault:
             profile_id="test-profile",
             cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
-            passphrase=sample_passphrase
+            passphrase=sample_passphrase,
         )
 
         for level in range(6):  # 0-5
@@ -235,7 +237,7 @@ class TestMemoryVault:
             profile_id="test-profile",
             cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
-            passphrase=sample_passphrase
+            passphrase=sample_passphrase,
         )
 
         memory = MemoryObject(
@@ -262,7 +264,7 @@ class TestMemoryVault:
                 memory_id="test-cooldown",
                 justification="Second recall",
                 passphrase=sample_passphrase,
-                )
+            )
         assert "cooldown" in str(exc_info.value).lower()
 
 
@@ -277,7 +279,7 @@ class TestBackupRestore:
             profile_id="test-profile",
             cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
-            passphrase=sample_passphrase
+            passphrase=sample_passphrase,
         )
 
         memory = MemoryObject(
@@ -290,11 +292,7 @@ class TestBackupRestore:
 
         # Create backup
         backup_path = temp_vault_dir / "test-backup.json"
-        vault.backup(
-            output_file=str(backup_path),
-            passphrase=sample_passphrase,
-            description="Test backup"
-        )
+        vault.backup(output_file=str(backup_path), passphrase=sample_passphrase, description="Test backup")
 
         assert backup_path.exists()
 
@@ -318,7 +316,7 @@ class TestBackupRestore:
             cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
             passphrase=sample_passphrase,
-            exportable=True  # Required for backup/restore
+            exportable=True,  # Required for backup/restore
         )
 
         memory = MemoryObject(
@@ -331,11 +329,7 @@ class TestBackupRestore:
 
         # Create backup
         backup_path = temp_vault_dir / "restore-backup.json"
-        vault.backup(
-            output_file=str(backup_path),
-            passphrase=sample_passphrase,
-            description="Restore test backup"
-        )
+        vault.backup(output_file=str(backup_path), passphrase=sample_passphrase, description="Restore test backup")
 
         vault.close()
 
@@ -344,15 +338,11 @@ class TestBackupRestore:
 
         # Create new vault and restore
         vault2 = MemoryVault(str(db_path))
-        vault2.restore(
-            backup_file=str(backup_path),
-            passphrase=sample_passphrase,
-            skip_confirmation=True
-        )
+        vault2.restore(backup_file=str(backup_path), passphrase=sample_passphrase, skip_confirmation=True)
 
         # Verify data was restored
         profiles = vault2.list_profiles()
-        assert any(p['profile_id'] == 'restore-profile' for p in profiles)
+        assert any(p["profile_id"] == "restore-profile" for p in profiles)
 
         # Recall should work
         recalled = vault2.recall_memory(
@@ -374,7 +364,7 @@ class TestIntegrity:
             profile_id="integrity-profile",
             cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
-            passphrase=sample_passphrase
+            passphrase=sample_passphrase,
         )
 
         memory = MemoryObject(
@@ -408,7 +398,7 @@ class TestLockdown:
             profile_id="lockdown-profile",
             cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
-            passphrase=sample_passphrase
+            passphrase=sample_passphrase,
         )
 
         memory = MemoryObject(
@@ -428,7 +418,7 @@ class TestLockdown:
                 memory_id="lockdown-test",
                 justification="Should fail",
                 passphrase=sample_passphrase,
-                )
+            )
         assert "lockdown" in str(exc_info.value).lower()
 
         # Disable lockdown
@@ -454,7 +444,7 @@ class TestTombstones:
             profile_id="tombstone-profile",
             cipher="XSalsa20-Poly1305",
             key_source="HumanPassphrase",
-            passphrase=sample_passphrase
+            passphrase=sample_passphrase,
         )
 
         memory = MemoryObject(
@@ -466,11 +456,7 @@ class TestTombstones:
         vault.store_memory(memory, passphrase=sample_passphrase)
 
         # Tombstone the memory
-        vault.tombstone_memory(
-            memory_id="tombstone-test",
-            reason="Test tombstone",
-            skip_confirmation=True
-        )
+        vault.tombstone_memory(memory_id="tombstone-test", reason="Test tombstone", skip_confirmation=True)
 
         # Recall should fail
         with pytest.raises(Exception) as exc_info:
@@ -478,5 +464,5 @@ class TestTombstones:
                 memory_id="tombstone-test",
                 justification="Should fail",
                 passphrase=sample_passphrase,
-                )
+            )
         assert "tombstone" in str(exc_info.value).lower()

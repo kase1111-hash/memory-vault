@@ -3,6 +3,7 @@
 import hashlib
 from typing import List, Tuple, Optional, Union
 
+
 def hash_leaf(data: Union[bytes, str]) -> str:
     """Double SHA256 for Merkle leaf (Bitcoin-style)."""
     if isinstance(data, str):
@@ -10,10 +11,12 @@ def hash_leaf(data: Union[bytes, str]) -> str:
     h = hashlib.sha256(data).digest()
     return hashlib.sha256(h).hexdigest()
 
+
 def hash_node(left: str, right: str) -> str:
     """Hash concatenation of two child nodes."""
     data = left + right
     return hashlib.sha256(hashlib.sha256(data.encode()).digest()).hexdigest()
+
 
 def build_tree(leaves: List[str]) -> Tuple[Optional[str], dict]:
     """
@@ -69,6 +72,7 @@ def build_tree(leaves: List[str]) -> Tuple[Optional[str], dict]:
 
     return current_level[0], proofs
 
+
 def verify_proof(leaf_hash: str, root_hash: str, proof: List[str]) -> bool:
     """Verify a leaf belongs to the tree using sibling proofs."""
     current = leaf_hash
@@ -76,6 +80,7 @@ def verify_proof(leaf_hash: str, root_hash: str, proof: List[str]) -> bool:
         data = current + sibling if int(current, 16) <= int(sibling, 16) else sibling + current
         current = hashlib.sha256(hashlib.sha256(data.encode()).digest()).hexdigest()
     return current == root_hash
+
 
 # Helper to rebuild entire tree from DB (for integrity check)
 def rebuild_merkle_tree(conn) -> Tuple[str, dict]:

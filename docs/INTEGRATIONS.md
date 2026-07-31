@@ -110,9 +110,9 @@ memory-vault recall <id>
 ### Fallback Behavior
 
 If the daemon is not running or socket missing:
-- All recalls are safely denied
-- Reason clearly logged
-- Enforces "fail-closed" security
+- Level 3+ recalls are safely denied ("fail-closed" security)
+- Levels 0-2 are auto-recall and remain available offline
+- Reason clearly logged in either case
 
 ---
 

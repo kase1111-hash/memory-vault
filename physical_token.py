@@ -23,6 +23,7 @@ try:
     from fido2.client import Fido2Client
     from fido2.server import Fido2Server
     from fido2.webauthn import PublicKeyCredentialRpEntity
+
     FIDO2_AVAILABLE = True
 except ImportError:
     FIDO2_AVAILABLE = False
@@ -30,6 +31,7 @@ except ImportError:
 # Fallback to pyotp for HOTP/TOTP devices
 try:
     import pyotp
+
     OTP_AVAILABLE = True
 except ImportError:
     OTP_AVAILABLE = False
@@ -171,12 +173,9 @@ def _hmac_challenge_response() -> bool:
             "Secret file presence check only - no actual hardware verification. "
             "Use FIDO2 or TOTP for proper Level 5 security.",
             UserWarning,
-            stacklevel=2
+            stacklevel=2,
         )
-        logger.warning(
-            "HMAC authentication used without hardware verification - "
-            "secret file presence check only"
-        )
+        logger.warning("HMAC authentication used without hardware verification - secret file presence check only")
 
         # Security: file-only HMAC is disabled by default (T2-05).
         # Set MEMORY_VAULT_ALLOW_HMAC_FILE_ONLY=1 to enable (reduced security).
@@ -288,6 +287,21 @@ def setup_hmac_token(secret: bytes = None) -> str:
     return TOKEN_CHALLENGE_PATH
 
 
+def any_token_configured() -> bool:
+    """
+    Return True if at least one physical token mechanism is usable
+    (FIDO2 device present, HMAC secret configured, or TOTP configured).
+    """
+    status = check_token_availability()
+    if status["fido2"]["available"] and status["fido2"]["devices"] > 0:
+        return True
+    if status["hmac"]["configured"]:
+        return True
+    if status["totp"]["available"] and status["totp"]["configured"]:
+        return True
+    return False
+
+
 def check_token_availability() -> dict:
     """
     Check which token methods are available.
@@ -307,7 +321,7 @@ def check_token_availability() -> dict:
         "totp": {
             "available": OTP_AVAILABLE,
             "configured": os.path.exists(TOTP_SECRET_PATH),
-        }
+        },
     }
 
     if FIDO2_AVAILABLE:

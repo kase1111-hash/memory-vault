@@ -1,6 +1,7 @@
 """
 Tests for Merkle tree operations.
 """
+
 import os
 import sys
 

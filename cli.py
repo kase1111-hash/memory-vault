@@ -7,22 +7,65 @@ from datetime import datetime
 
 import sqlite3
 
-from memory_vault.vault import MemoryVault
-from memory_vault.models import MemoryObject
-from memory_vault.db import DB_PATH, search_memories_metadata, search_recall_justifications
-from memory_vault.deadman import (
-    init_deadman_switch,
-    arm_deadman_switch,
-    checkin_deadman_switch,
-    disarm_deadman_switch,
-    is_deadman_triggered,
-    get_payload_memory_ids,
-    add_heir,
-    list_heirs,
-    encrypt_payload_for_heirs,
-    get_heir_release_packages
-)
-
+# Support both package import (pip install) and direct module import
+try:
+    from memory_vault.vault import MemoryVault
+    from memory_vault.models import MemoryObject
+    from memory_vault.db import DB_PATH, search_memories_metadata, search_recall_justifications
+    from memory_vault.deadman import (
+        init_deadman_switch,
+        arm_deadman_switch,
+        checkin_deadman_switch,
+        disarm_deadman_switch,
+        is_deadman_triggered,
+        get_payload_memory_ids,
+        add_heir,
+        list_heirs,
+        encrypt_payload_for_heirs,
+        get_heir_release_packages,
+    )
+    from memory_vault.intentlog import link_intent, unlink_intent, search_by_intent, get_intents_for_memory
+    from memory_vault.zkproofs import (
+        generate_existence_commitment,
+        verify_existence_commitment,
+        generate_time_bound_proof,
+    )
+    from memory_vault.escrow import (
+        create_escrow,
+        list_escrows,
+        get_escrow_info,
+        export_shard_package,
+        delete_escrow,
+    )
+except ImportError:
+    from vault import MemoryVault
+    from models import MemoryObject
+    from db import DB_PATH, search_memories_metadata, search_recall_justifications
+    from deadman import (
+        init_deadman_switch,
+        arm_deadman_switch,
+        checkin_deadman_switch,
+        disarm_deadman_switch,
+        is_deadman_triggered,
+        get_payload_memory_ids,
+        add_heir,
+        list_heirs,
+        encrypt_payload_for_heirs,
+        get_heir_release_packages,
+    )
+    from intentlog import link_intent, unlink_intent, search_by_intent, get_intents_for_memory
+    from zkproofs import (
+        generate_existence_commitment,
+        verify_existence_commitment,
+        generate_time_bound_proof,
+    )
+    from escrow import (
+        create_escrow,
+        list_escrows,
+        get_escrow_info,
+        export_shard_package,
+        delete_escrow,
+    )
 
 
 def main():
@@ -42,7 +85,7 @@ def main():
     p_store = subparsers.add_parser("store", help="Store memory")
     p_store.add_argument("--id", help="Memory ID (optional)")
     p_store.add_argument("--content", required=True)
-    p_store.add_argument("--classification", type=int, default=1, choices=range(0,6))
+    p_store.add_argument("--classification", type=int, default=1, choices=range(0, 6))
     p_store.add_argument("--profile", default="default-passphrase")
     p_store.add_argument("--cooldown", type=int, default=0)
     p_store.add_argument("--metadata", default="{}")
@@ -66,6 +109,11 @@ def main():
     p_backup.add_argument("--incremental", action="store_true")
     p_backup.add_argument("--description", default="")
     p_backup.add_argument("--passphrase-file")
+
+    p_restore = subparsers.add_parser("restore", help="Restore vault from encrypted backup")
+    p_restore.add_argument("backup_file")
+    p_restore.add_argument("--passphrase-file")
+    p_restore.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
 
     subparsers.add_parser("list-backups", help="List backup history")
 
@@ -190,7 +238,7 @@ def main():
             profile_id=args.profile_id,
             key_source=args.key_source,
             exportable=args.exportable,
-            generate_keyfile=args.generate_keyfile
+            generate_keyfile=args.generate_keyfile,
         )
 
     elif args.command == "list-profiles":
@@ -209,7 +257,7 @@ def main():
             "classification": args.classification,
             "encryption_profile": args.profile,
             "access_policy": {"cooldown_seconds": args.cooldown},
-            "value_metadata": metadata
+            "value_metadata": metadata,
         }
         if args.id:
             obj_kwargs["memory_id"] = args.id
@@ -221,7 +269,7 @@ def main():
         try:
             plain = vault.recall_memory(args.memory_id, justification=args.justification)
             print("\n=== DECRYPTED CONTENT ===")
-            print(plain.decode('utf-8', errors='replace'))
+            print(plain.decode("utf-8", errors="replace"))
             print("=========================\n")
         except Exception as e:
             print(f"Recall failed: {e}")
@@ -234,21 +282,33 @@ def main():
     elif args.command == "search-justifications":
         results = search_recall_justifications(args.query, args.limit)
         for r in results:
-            status = "APPROVED" if r['approved'] else "DENIED"
-            ts = datetime.fromisoformat(r['timestamp'].rstrip("Z") + "+00:00").strftime("%Y-%m-%d %H:%M")
+            status = "APPROVED" if r["approved"] else "DENIED"
+            ts = datetime.fromisoformat(r["timestamp"].rstrip("Z")).strftime("%Y-%m-%d %H:%M")
             print(f"{ts} | {status} | {r['memory_id']}: {r['preview']}\n")
 
     elif args.command == "backup":
-        passphrase = get_passphrase("Backup encryption passphrase: ") if not getattr(args, "passphrase_file", None) else None
+        passphrase = (
+            get_passphrase("Backup encryption passphrase: ") if getattr(args, "passphrase_file", None) else None
+        )
         try:
             vault.backup(
                 output_file=args.output_file,
                 incremental=args.incremental,
                 description=args.description,
-                passphrase=passphrase
+                passphrase=passphrase,
             )
         except Exception as e:
             print(f"Backup failed: {e}")
+            sys.exit(1)
+
+    elif args.command == "restore":
+        passphrase = (
+            get_passphrase("Backup decryption passphrase: ") if getattr(args, "passphrase_file", None) else None
+        )
+        try:
+            vault.restore(backup_file=args.backup_file, passphrase=passphrase, skip_confirmation=args.yes)
+        except Exception as e:
+            print(f"Restore failed: {e}")
             sys.exit(1)
 
     elif args.command == "list-backups":
@@ -270,7 +330,7 @@ def main():
 
     elif args.command == "verify-integrity":
         try:
-            result = vault.verify_integrity(memory_id=args.memory_id if hasattr(args, 'memory_id') else None)
+            result = vault.verify_integrity(memory_id=args.memory_id if hasattr(args, "memory_id") else None)
             sys.exit(0 if result else 1)
         except Exception as e:
             print(f"Verification failed: {e}")
@@ -324,9 +384,9 @@ def main():
         stats = vault.get_ephemeral_count()
         print("\n=== Ephemeral Memory Status ===\n")
         print(f"Count: {stats['count']}")
-        if stats['oldest']:
+        if stats["oldest"]:
             print(f"Oldest: {stats['oldest']}")
-        if stats['newest']:
+        if stats["newest"]:
             print(f"Newest: {stats['newest']}")
         print()
 
@@ -408,7 +468,6 @@ def main():
     # ==================== IntentLog Commands ====================
 
     elif args.command == "intent-link":
-        from memory_vault.intentlog import link_intent
         try:
             link_intent(args.memory_id, args.intent_id)
         except Exception as e:
@@ -416,7 +475,6 @@ def main():
             sys.exit(1)
 
     elif args.command == "intent-unlink":
-        from memory_vault.intentlog import unlink_intent
         try:
             unlink_intent(args.memory_id, args.intent_id)
         except Exception as e:
@@ -424,20 +482,18 @@ def main():
             sys.exit(1)
 
     elif args.command == "intent-search":
-        from memory_vault.intentlog import search_by_intent
         results = search_by_intent(args.query, args.limit)
         print(f"\n=== Intent Search: '{args.query}' ===\n")
         if not results:
             print("No matches found")
         else:
             for r in results:
-                tomb = " [TOMBSTONED]" if r['tombstoned'] else ""
+                tomb = " [TOMBSTONED]" if r["tombstoned"] else ""
                 print(f"{r['memory_id'][:12]}... | Level {r['classification']}{tomb}")
                 print(f"  Intents: {', '.join(r['intent_refs']) if r['intent_refs'] else 'None'}")
                 print()
 
     elif args.command == "intent-get":
-        from memory_vault.intentlog import get_intents_for_memory
         try:
             intents = get_intents_for_memory(args.memory_id)
             print(f"\n=== Intents for {args.memory_id} ===\n")
@@ -454,7 +510,6 @@ def main():
     # ==================== Zero-Knowledge Proof Commands ====================
 
     elif args.command == "zk-commitment":
-        from memory_vault.zkproofs import generate_existence_commitment
         try:
             commitment = generate_existence_commitment(args.memory_id)
             if args.output:
@@ -468,13 +523,10 @@ def main():
             sys.exit(1)
 
     elif args.command == "zk-verify":
-        from memory_vault.zkproofs import verify_existence_commitment
         try:
             with open(args.commitment_file) as f:
                 commitment = json.load(f)
-            is_valid, message = verify_existence_commitment(
-                commitment, args.memory_id, args.created_at
-            )
+            is_valid, message = verify_existence_commitment(commitment, args.memory_id, args.created_at)
             if is_valid:
                 print(f"\n✓ {message}\n")
                 sys.exit(0)
@@ -486,11 +538,10 @@ def main():
             sys.exit(1)
 
     elif args.command == "zk-time-proof":
-        from memory_vault.zkproofs import generate_time_bound_proof
         try:
             proof = generate_time_bound_proof(args.memory_id, args.before_timestamp)
             print(json.dumps(proof, indent=2))
-            if proof['existed_before']:
+            if proof["existed_before"]:
                 print(f"\n✓ Memory existed before {args.before_timestamp}\n")
             else:
                 print(f"\n✗ Memory was created AFTER {args.before_timestamp}\n")
@@ -501,7 +552,6 @@ def main():
     # ==================== Escrow Commands ====================
 
     elif args.command == "escrow-create":
-        from memory_vault.escrow import create_escrow
         try:
             # Parse recipients: "name1:pubkey1,name2:pubkey2"
             recipients = []
@@ -509,20 +559,18 @@ def main():
                 name, pubkey = pair.strip().split(":", 1)
                 recipients.append((name.strip(), pubkey.strip()))
 
-            escrow_id = create_escrow(
-                args.profile_id,
-                args.threshold,
-                recipients
-            )
+            escrow_id = create_escrow(args.profile_id, args.threshold, recipients)
             if escrow_id:
                 print(f"\nEscrow created: {escrow_id}\n")
+            else:
+                print("Escrow creation aborted")
+                sys.exit(1)
         except Exception as e:
             print(f"Escrow creation failed: {e}")
             sys.exit(1)
 
     elif args.command == "escrow-list":
-        from memory_vault.escrow import list_escrows
-        escrows = list_escrows(args.profile if hasattr(args, 'profile') else None)
+        escrows = list_escrows(args.profile if hasattr(args, "profile") else None)
         print("\n=== Key Escrows ===\n")
         if not escrows:
             print("No escrows found")
@@ -533,7 +581,6 @@ def main():
                 print()
 
     elif args.command == "escrow-info":
-        from memory_vault.escrow import get_escrow_info
         try:
             info = get_escrow_info(args.escrow_id)
             print(f"\n=== Escrow: {info['escrow_id']} ===\n")
@@ -541,7 +588,7 @@ def main():
             print(f"Threshold: {info['threshold']} of {info['total_shards']}")
             print(f"Created: {info['created_at']}")
             print("\nRecipients:")
-            for r in info['recipients']:
+            for r in info["recipients"]:
                 print(f"  Shard {r['index']}: {r['name']}")
             print()
         except Exception as e:
@@ -549,7 +596,6 @@ def main():
             sys.exit(1)
 
     elif args.command == "escrow-export":
-        from memory_vault.escrow import export_shard_package
         try:
             package = export_shard_package(args.escrow_id, args.recipient_name)
             if args.output:
@@ -563,13 +609,13 @@ def main():
             sys.exit(1)
 
     elif args.command == "escrow-delete":
-        from memory_vault.escrow import delete_escrow
         try:
             result = delete_escrow(args.escrow_id)
             sys.exit(0 if result else 1)
         except Exception as e:
             print(f"Delete failed: {e}")
             sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

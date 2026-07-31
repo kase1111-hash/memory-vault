@@ -168,7 +168,7 @@ def create_escrow(
     profile_id: str,
     threshold: int,
     recipients: List[Tuple[str, str]],  # (name, public_key_b64)
-    vault_passphrase: str = None
+    vault_passphrase: str = None,
 ) -> str:
     """
     Create an escrowed key for a profile.
@@ -185,7 +185,10 @@ def create_escrow(
     Returns:
         escrow_id: Unique identifier for this escrow
     """
-    from .physical_token import require_physical_token
+    try:
+        from .physical_token import require_physical_token, any_token_configured
+    except ImportError:
+        from physical_token import require_physical_token, any_token_configured
 
     # Security: Validate profile_id to prevent path traversal
     validate_profile_id(profile_id)
@@ -197,20 +200,22 @@ def create_escrow(
     if threshold < 2:
         raise ValueError("Threshold must be at least 2")
 
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print(f"KEY ESCROW: {profile_id}")
-    print("="*50)
+    print("=" * 50)
     print(f"\nRecipients: {total_shards}")
     print(f"Threshold: {threshold} of {total_shards}")
     print("\nRecipients:")
     for name, _ in recipients:
         print(f"  - {name}")
 
-    print("\nPhysical token required for escrow creation.\n")
-
-    if not require_physical_token("Create key escrow"):
-        print("Escrow aborted: Physical token required")
-        return None
+    if any_token_configured():
+        print("\nPhysical token required for escrow creation.\n")
+        if not require_physical_token("Create key escrow"):
+            print("Escrow aborted: Physical token required")
+            return None
+    else:
+        print("\nNo physical token configured — proceeding without token authentication.\n")
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -232,6 +237,7 @@ def create_escrow(
     if key_source == "HumanPassphrase":
         if not vault_passphrase:
             import getpass
+
             vault_passphrase = getpass.getpass(f"Enter passphrase for profile '{profile_id}': ")
         # We'll escrow the passphrase itself (or derived key)
         key, _ = derive_key_from_passphrase(vault_passphrase)
@@ -255,11 +261,14 @@ def create_escrow(
             box = SealedBox(pubkey)
             encrypted_shard = box.encrypt(shard_data)
 
-            c.execute("""
+            c.execute(
+                """
                 INSERT INTO escrow_shards
                 (escrow_id, shard_index, shard_data, recipient, created_at, threshold, total_shards, profile_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (escrow_id, shard_idx, encrypted_shard, name, timestamp, threshold, total_shards, profile_id))
+            """,
+                (escrow_id, shard_idx, encrypted_shard, name, timestamp, threshold, total_shards, profile_id),
+            )
 
             print(f"  Shard {shard_idx} encrypted for {name}")
 
@@ -271,13 +280,13 @@ def create_escrow(
     conn.commit()
     conn.close()
 
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("KEY ESCROW CREATED")
     print(f"  Escrow ID: {escrow_id}")
     print(f"  Profile: {profile_id}")
     print(f"  Shards: {total_shards}")
     print(f"  Threshold: {threshold}")
-    print("="*50 + "\n")
+    print("=" * 50 + "\n")
 
     return escrow_id
 
@@ -295,12 +304,15 @@ def get_escrow_info(escrow_id: str) -> dict:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    c.execute("""
+    c.execute(
+        """
         SELECT shard_index, recipient, created_at, threshold, total_shards, profile_id
         FROM escrow_shards
         WHERE escrow_id = ?
         ORDER BY shard_index
-    """, (escrow_id,))
+    """,
+        (escrow_id,),
+    )
 
     rows = c.fetchall()
     conn.close()
@@ -314,7 +326,7 @@ def get_escrow_info(escrow_id: str) -> dict:
         "threshold": rows[0][3],
         "total_shards": rows[0][4],
         "created_at": rows[0][2],
-        "recipients": [{"index": r[0], "name": r[1]} for r in rows]
+        "recipients": [{"index": r[0], "name": r[1]} for r in rows],
     }
 
 
@@ -332,11 +344,14 @@ def list_escrows(profile_id: str = None) -> List[dict]:
     c = conn.cursor()
 
     if profile_id:
-        c.execute("""
+        c.execute(
+            """
             SELECT DISTINCT escrow_id, profile_id, threshold, total_shards, created_at
             FROM escrow_shards
             WHERE profile_id = ?
-        """, (profile_id,))
+        """,
+            (profile_id,),
+        )
     else:
         c.execute("""
             SELECT DISTINCT escrow_id, profile_id, threshold, total_shards, created_at
@@ -347,13 +362,7 @@ def list_escrows(profile_id: str = None) -> List[dict]:
     conn.close()
 
     return [
-        {
-            "escrow_id": r[0],
-            "profile_id": r[1],
-            "threshold": r[2],
-            "total_shards": r[3],
-            "created_at": r[4]
-        }
+        {"escrow_id": r[0], "profile_id": r[1], "threshold": r[2], "total_shards": r[3], "created_at": r[4]}
         for r in rows
     ]
 
@@ -372,11 +381,14 @@ def export_shard_package(escrow_id: str, recipient_name: str) -> dict:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    c.execute("""
+    c.execute(
+        """
         SELECT shard_index, shard_data, threshold, total_shards, profile_id, created_at
         FROM escrow_shards
         WHERE escrow_id = ? AND recipient = ?
-    """, (escrow_id, recipient_name))
+    """,
+        (escrow_id, recipient_name),
+    )
 
     row = c.fetchone()
     conn.close()
@@ -395,9 +407,9 @@ def export_shard_package(escrow_id: str, recipient_name: str) -> dict:
         "created_at": row[5],
         "instructions": (
             f"This shard is part of a {row[2]}-of-{row[3]} escrow scheme. "
-            f"Decrypt with your private key, then combine with at least {row[2]-1} other shards "
+            f"Decrypt with your private key, then combine with at least {row[2] - 1} other shards "
             f"to recover the key for profile '{row[4]}'."
-        )
+        ),
     }
 
 
@@ -436,21 +448,27 @@ def delete_escrow(escrow_id: str) -> bool:
     Returns:
         bool: True if deleted
     """
-    from .physical_token import require_physical_token
+    try:
+        from .physical_token import require_physical_token, any_token_configured
+    except ImportError:
+        from physical_token import require_physical_token, any_token_configured
 
     info = get_escrow_info(escrow_id)
 
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print(f"DELETE ESCROW: {escrow_id}")
-    print("="*50)
+    print("=" * 50)
     print(f"\nProfile: {info['profile_id']}")
     print(f"Shards: {info['total_shards']}")
     print("\nThis will permanently delete all shards!")
-    print("Physical token required.\n")
 
-    if not require_physical_token("Delete escrow"):
-        print("Deletion aborted: Physical token required")
-        return False
+    if any_token_configured():
+        print("Physical token required.\n")
+        if not require_physical_token("Delete escrow"):
+            print("Deletion aborted: Physical token required")
+            return False
+    else:
+        print("No physical token configured — proceeding with confirmation only.\n")
 
     confirm = input("Type 'DELETE ESCROW' to confirm: ").strip()
     if confirm != "DELETE ESCROW":

@@ -1,6 +1,5 @@
 # memory_vault/vault.py
 
-import sqlite3
 import json
 import getpass
 import os
@@ -152,7 +151,7 @@ class MemoryVault:
         rotation_policy: str = "manual",
         exportable: bool = False,
         generate_keyfile: bool = False,
-        passphrase: str = None
+        passphrase: str = None,
     ) -> str:
         try:
             from .crypto import TPM_AVAILABLE
@@ -170,7 +169,7 @@ class MemoryVault:
             raise ValueError(f"Unsupported or unavailable key_source: {key_source}")
 
         c = self._conn.cursor()
-        c.execute('SELECT 1 FROM encryption_profiles WHERE profile_id = ?', (profile_id,))
+        c.execute("SELECT 1 FROM encryption_profiles WHERE profile_id = ?", (profile_id,))
         if c.fetchone():
             raise ValueError(f"Profile '{profile_id}' already exists")
 
@@ -182,11 +181,14 @@ class MemoryVault:
             keyfile_path = make_keyfile(profile_id)
             print(f"Generated keyfile: {keyfile_path}")
 
-        c.execute('''
+        c.execute(
+            """
             INSERT INTO encryption_profiles
             (profile_id, cipher, key_source, rotation_policy, exportable)
             VALUES (?, ?, ?, ?, ?)
-        ''', (profile_id, cipher, key_source, rotation_policy, int(exportable)))
+        """,
+            (profile_id, cipher, key_source, rotation_policy, int(exportable)),
+        )
         self._conn.commit()
 
         # If passphrase provided, cache the derived key for later use
@@ -199,11 +201,10 @@ class MemoryVault:
 
     def list_profiles(self) -> list[dict]:
         c = self._conn.cursor()
-        c.execute('SELECT profile_id, cipher, key_source, rotation_policy, exportable FROM encryption_profiles')
+        c.execute("SELECT profile_id, cipher, key_source, rotation_policy, exportable FROM encryption_profiles")
         rows = c.fetchall()
         return [
-            {"profile_id": r[0], "cipher": r[1], "key_source": r[2],
-             "rotation_policy": r[3], "exportable": bool(r[4])}
+            {"profile_id": r[0], "cipher": r[1], "key_source": r[2], "rotation_policy": r[3], "exportable": bool(r[4])}
             for r in rows
         ]
 
@@ -246,7 +247,7 @@ class MemoryVault:
             raise ValueError(f"created_by must be one of {VALID_CREATORS}")
 
         c = self._conn.cursor()
-        c.execute('SELECT key_source FROM encryption_profiles WHERE profile_id = ?', (obj.encryption_profile,))
+        c.execute("SELECT key_source FROM encryption_profiles WHERE profile_id = ?", (obj.encryption_profile,))
         row = c.fetchone()
         if not row:
             raise ValueError(f"Profile '{obj.encryption_profile}' not found")
@@ -277,28 +278,31 @@ class MemoryVault:
 
         obj.content_hash = hashlib.sha256(obj.content_plaintext).hexdigest()
 
-        c.execute('''
+        c.execute(
+            """
             INSERT INTO memories (
                 memory_id, created_at, created_by, classification, encryption_profile,
                 content_hash, ciphertext, nonce, salt, intent_ref, value_metadata,
                 access_policy, audit_proof, sealed_blob
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            obj.memory_id,
-            obj.created_at.isoformat(),
-            obj.created_by,
-            obj.classification,
-            obj.encryption_profile,
-            obj.content_hash,
-            ciphertext,
-            nonce,
-            salt,
-            obj.intent_ref,
-            json.dumps(obj.value_metadata),
-            json.dumps(obj.access_policy),
-            obj.audit_proof,
-            sealed_blob
-        ))
+        """,
+            (
+                obj.memory_id,
+                obj.created_at.isoformat(),
+                obj.created_by,
+                obj.classification,
+                obj.encryption_profile,
+                obj.content_hash,
+                ciphertext,
+                nonce,
+                salt,
+                obj.intent_ref,
+                json.dumps(obj.value_metadata),
+                json.dumps(obj.access_policy),
+                obj.audit_proof,
+                sealed_blob,
+            ),
+        )
         self._conn.commit()
         print(f"Stored memory {obj.memory_id} | Level {obj.classification} | Profile: {obj.encryption_profile}")
         return obj.memory_id
@@ -335,19 +339,14 @@ class MemoryVault:
         # Check lockdown status first
         is_locked, since, reason = self.is_locked_down()
         if is_locked:
-            exc = LockdownError(
-                f"Vault is in LOCKDOWN since {since}: {reason}",
-                lockdown_reason=reason
-            )
+            exc = LockdownError(f"Vault is in LOCKDOWN since {since}: {reason}", lockdown_reason=reason)
             raise exc
 
         c = self._conn.cursor()
-        c.execute('SELECT * FROM memories WHERE memory_id = ?', (memory_id,))
+        c.execute("SELECT * FROM memories WHERE memory_id = ?", (memory_id,))
         row = c.fetchone()
         if not row:
-            exc = MemoryNotFoundError(
-                f"Memory '{memory_id}' not found"
-            )
+            exc = MemoryNotFoundError(f"Memory '{memory_id}' not found")
             raise exc
 
         # Capture column names immediately after query
@@ -356,9 +355,7 @@ class MemoryVault:
 
         # Check if memory is tombstoned
         if row_dict.get("tombstoned"):
-            exc = TombstoneError(
-                f"Memory is TOMBSTONED: {row_dict.get('tombstone_reason') or 'No reason provided'}"
-            )
+            exc = TombstoneError(f"Memory is TOMBSTONED: {row_dict.get('tombstone_reason') or 'No reason provided'}")
             raise exc
 
         classification = row_dict["classification"]
@@ -378,10 +375,7 @@ class MemoryVault:
             if not permitted:
                 self._log_recall(c, memory_id, requester, False, justification + f" | boundary: {boundary_reason}")
                 self._conn.commit()
-                exc = BoundaryDeniedError(
-                    f"Boundary check failed: {boundary_reason}",
-                    reason=boundary_reason
-                )
+                exc = BoundaryDeniedError(f"Boundary check failed: {boundary_reason}", reason=boundary_reason)
                 raise exc
 
         # 2. Human approval
@@ -391,9 +385,7 @@ class MemoryVault:
             if approve != "yes":
                 self._log_recall(c, memory_id, requester, False, justification + " | human denied")
                 self._conn.commit()
-                exc = ApprovalRequiredError(
-                    "Recall denied by human"
-                )
+                exc = ApprovalRequiredError("Recall denied by human")
                 raise exc
 
         # 3. Cooldown
@@ -404,10 +396,7 @@ class MemoryVault:
                 remaining = int(cooldown - (datetime.now(timezone.utc) - last_time).total_seconds())
                 self._log_recall(c, memory_id, requester, False, f"cooldown: {remaining}s")
                 self._conn.commit()
-                exc = CooldownError(
-                    f"Cooldown active — {remaining}s remaining",
-                    remaining_seconds=remaining
-                )
+                exc = CooldownError(f"Cooldown active — {remaining}s remaining", remaining_seconds=remaining)
                 raise exc
 
         # 4. Physical token (Level 5 only)
@@ -420,14 +409,12 @@ class MemoryVault:
             if not require_physical_token(justification):
                 self._log_recall(c, memory_id, requester, False, justification + " | token absent")
                 self._conn.commit()
-                exc = PhysicalTokenError(
-                    "Physical token required but not presented"
-                )
+                exc = PhysicalTokenError("Physical token required but not presented")
                 raise exc
             print("✓ Physical token confirmed\n")
 
         # 5. Key & decrypt
-        c.execute('SELECT key_source FROM encryption_profiles WHERE profile_id = ?', (encryption_profile,))
+        c.execute("SELECT key_source FROM encryption_profiles WHERE profile_id = ?", (encryption_profile,))
         key_source = c.fetchone()[0]
 
         try:
@@ -450,9 +437,7 @@ class MemoryVault:
             logger.error("Key access failed for profile '%s': %s", encryption_profile, e)
             self._log_recall(c, memory_id, requester, False, f"key error: {e}")
             self._conn.commit()
-            exc = ProfileKeyMissingError(
-                "Key access failed"
-            )
+            exc = ProfileKeyMissingError("Key access failed")
             raise exc from e
 
         try:
@@ -460,9 +445,7 @@ class MemoryVault:
         except Exception as e:
             self._log_recall(c, memory_id, requester, False, f"decrypt error: {e}")
             self._conn.commit()
-            exc = DecryptionError(
-                "Decryption failed - possible tampering or wrong key"
-            )
+            exc = DecryptionError("Decryption failed - possible tampering or wrong key")
             raise exc from e
 
         # 5b. Post-decryption integrity check (defense-in-depth, T2-01)
@@ -472,9 +455,7 @@ class MemoryVault:
             if actual_hash != stored_hash:
                 self._log_recall(c, memory_id, requester, False, "content hash mismatch")
                 self._conn.commit()
-                raise DecryptionError(
-                    "Content hash mismatch after decryption - possible tampering"
-                )
+                raise DecryptionError("Content hash mismatch after decryption - possible tampering")
 
         # 5c. Run registered memory auditors (T2-02)
         for auditor in self._memory_auditors:
@@ -492,11 +473,14 @@ class MemoryVault:
         request_id = str(uuid.uuid4())
         timestamp = datetime.now(timezone.utc).isoformat()
 
-        cursor.execute('''
+        cursor.execute(
+            """
             INSERT INTO recall_log
             (request_id, memory_id, requester, timestamp, approved, justification)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (request_id, memory_id, requester, timestamp, int(approved), justification))
+        """,
+            (request_id, memory_id, requester, timestamp, int(approved), justification),
+        )
 
         log_entry = f"{request_id}|{memory_id}|{requester}|{timestamp}|{int(approved)}|{justification or ''}"
         leaf_hash = hash_leaf(log_entry)
@@ -518,10 +502,13 @@ class MemoryVault:
 
         signature = sign_root(self.signing_key, new_root, next_seq, timestamp)
 
-        c2.execute('''
+        c2.execute(
+            """
             INSERT INTO merkle_roots (seq, root_hash, timestamp, leaf_count, signature)
             VALUES (?, ?, ?, ?, ?)
-        ''', (next_seq, new_root, timestamp, len(leaves), signature))
+        """,
+            (next_seq, new_root, timestamp, len(leaves), signature),
+        )
 
         # Update proof for this memory
         if leaves:
@@ -530,18 +517,22 @@ class MemoryVault:
             c2.execute("UPDATE memories SET audit_proof = ? WHERE memory_id = ?", (proof_json, memory_id))
 
     def _get_last_successful_recall_time(self, cursor, memory_id: str):
-        cursor.execute('''
+        cursor.execute(
+            """
             SELECT timestamp FROM recall_log
             WHERE memory_id = ? AND approved = 1
             ORDER BY timestamp DESC LIMIT 1
-        ''', (memory_id,))
+        """,
+            (memory_id,),
+        )
         row = cursor.fetchone()
         return datetime.fromisoformat(row[0]) if row else None
 
     # ==================== Backup & Restore ====================
 
-    def backup(self, output_file: str, incremental: bool = False,
-               description: str = "", passphrase: str = None) -> None:
+    def backup(
+        self, output_file: str, incremental: bool = False, description: str = "", passphrase: str = None
+    ) -> None:
         """
         Create encrypted backup of the vault.
 
@@ -583,17 +574,23 @@ class MemoryVault:
         # Collect memories to backup
         if incremental and parent_backup_id:
             # Only backup memories created/updated after last backup
-            c.execute("""
+            c.execute(
+                """
                 SELECT backup_id, timestamp FROM backups
                 WHERE backup_id = ?
-            """, (parent_backup_id,))
+            """,
+                (parent_backup_id,),
+            )
             parent_row = c.fetchone()
             parent_timestamp = parent_row[1] if parent_row else "1970-01-01T00:00:00"
 
-            c.execute("""
+            c.execute(
+                """
                 SELECT * FROM memories
                 WHERE created_at > ?
-            """, (parent_timestamp,))
+            """,
+                (parent_timestamp,),
+            )
         else:
             c.execute("SELECT * FROM memories")
 
@@ -604,14 +601,19 @@ class MemoryVault:
             memory_dict = dict(zip(columns, row))
 
             # Check if memory is exportable
-            c.execute("""
-                SELECT exportable FROM encryption_profiles
+            c.execute(
+                """
+                SELECT exportable, key_source FROM encryption_profiles
                 WHERE profile_id = ?
-            """, (memory_dict["encryption_profile"],))
+            """,
+                (memory_dict["encryption_profile"],),
+            )
             profile_row = c.fetchone()
 
-            if profile_row and not profile_row[0]:
-                # Non-exportable (e.g., TPM-sealed) - zero out ciphertext
+            if profile_row and not profile_row[0] and profile_row[1] == "TPM":
+                # Non-exportable hardware-bound (TPM-sealed) keys cannot leave
+                # this device - zero out ciphertext. Passphrase/keyfile memories
+                # stay encrypted with their profile key and are safe to export.
                 print(f"Warning: Memory {memory_dict['memory_id']} is non-exportable, excluding from backup")
                 memory_dict["ciphertext"] = None
                 memory_dict["nonce"] = None
@@ -649,7 +651,7 @@ class MemoryVault:
             "memory_count": len(memories),
             "memories": memories,
             "encryption_profiles": profiles,
-            "vault_version": "1.0.0"
+            "vault_version": "1.0.0",
         }
 
         # Serialize and encrypt
@@ -661,17 +663,20 @@ class MemoryVault:
             "version": "1.0",
             "salt": base64.b64encode(salt).decode(),
             "nonce": base64.b64encode(nonce).decode(),
-            "ciphertext": base64.b64encode(ciphertext).decode()
+            "ciphertext": base64.b64encode(ciphertext).decode(),
         }
 
         with open(output_file, "w") as f:
             json.dump(backup_container, f, indent=2)
 
         # Record backup in database
-        c.execute("""
+        c.execute(
+            """
             INSERT INTO backups (backup_id, timestamp, type, parent_backup_id, memory_count, description)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, (backup_id, backup_data["timestamp"], backup_type, parent_backup_id, len(memories), description))
+        """,
+            (backup_id, backup_data["timestamp"], backup_type, parent_backup_id, len(memories), description),
+        )
 
         self._conn.commit()
 
@@ -727,18 +732,32 @@ class MemoryVault:
 
         # Restore encryption profiles
         for profile in backup_data.get("encryption_profiles", []):
-            c.execute("""
+            c.execute(
+                """
                 INSERT OR REPLACE INTO encryption_profiles
                 (profile_id, cipher, key_source, rotation_policy, exportable)
                 VALUES (?, ?, ?, ?, ?)
-            """, (profile["profile_id"], profile["cipher"], profile["key_source"],
-                  profile["rotation_policy"], profile["exportable"]))
+            """,
+                (
+                    profile["profile_id"],
+                    profile["cipher"],
+                    profile["key_source"],
+                    profile["rotation_policy"],
+                    profile["exportable"],
+                ),
+            )
 
         # Restore memories
         restored_count = 0
         skipped_count = 0
 
         for memory in backup_data["memories"]:
+            # Non-exportable memories were excluded from the backup (null ciphertext)
+            if not memory["ciphertext"]:
+                print(f"Warning: Memory {memory['memory_id']} has no ciphertext in backup (non-exportable), skipping")
+                skipped_count += 1
+                continue
+
             # Check if memory already exists
             c.execute("SELECT 1 FROM memories WHERE memory_id = ?", (memory["memory_id"],))
             if c.fetchone():
@@ -755,19 +774,31 @@ class MemoryVault:
             if memory["sealed_blob"]:
                 memory["sealed_blob"] = base64.b64decode(memory["sealed_blob"])
 
-            c.execute("""
+            c.execute(
+                """
                 INSERT INTO memories (
                     memory_id, created_at, created_by, classification, encryption_profile,
                     content_hash, ciphertext, nonce, salt, intent_ref, value_metadata,
                     access_policy, audit_proof, sealed_blob
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                memory["memory_id"], memory["created_at"], memory["created_by"],
-                memory["classification"], memory["encryption_profile"], memory["content_hash"],
-                memory["ciphertext"], memory["nonce"], memory["salt"], memory["intent_ref"],
-                memory["value_metadata"], memory["access_policy"], memory["audit_proof"],
-                memory["sealed_blob"]
-            ))
+            """,
+                (
+                    memory["memory_id"],
+                    memory["created_at"],
+                    memory["created_by"],
+                    memory["classification"],
+                    memory["encryption_profile"],
+                    memory["content_hash"],
+                    memory["ciphertext"],
+                    memory["nonce"],
+                    memory["salt"],
+                    memory["intent_ref"],
+                    memory["value_metadata"],
+                    memory["access_policy"],
+                    memory["audit_proof"],
+                    memory["sealed_blob"],
+                ),
+            )
             restored_count += 1
 
         self._conn.commit()
@@ -873,11 +904,14 @@ class MemoryVault:
             audit_proof = json.loads(row[0] or "[]")
 
             # Find this memory's leaf in recall log
-            c.execute("""
+            c.execute(
+                """
                 SELECT request_id FROM recall_log
                 WHERE memory_id = ?
                 ORDER BY timestamp DESC LIMIT 1
-            """, (memory_id,))
+            """,
+                (memory_id,),
+            )
             recall_row = c.fetchone()
 
             if not recall_row:
@@ -905,9 +939,9 @@ class MemoryVault:
                 print("✗ INTEGRITY FAILURE: Invalid Merkle proof")
                 return False
 
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("✓ INTEGRITY VERIFICATION PASSED")
-        print("="*50)
+        print("=" * 50)
 
         return True
 
@@ -937,13 +971,11 @@ class MemoryVault:
             before_seq = max_seq  # Keep the latest root
 
         c.execute(
-            "SELECT seq, root_hash, timestamp, leaf_count, signature "
-            "FROM merkle_roots WHERE seq < ? ORDER BY seq",
-            (before_seq,)
+            "SELECT seq, root_hash, timestamp, leaf_count, signature FROM merkle_roots WHERE seq < ? ORDER BY seq",
+            (before_seq,),
         )
         roots = [
-            {"seq": r[0], "root_hash": r[1], "timestamp": r[2],
-             "leaf_count": r[3], "signature": r[4]}
+            {"seq": r[0], "root_hash": r[1], "timestamp": r[2], "leaf_count": r[3], "signature": r[4]}
             for r in c.fetchall()
         ]
 
@@ -971,18 +1003,24 @@ class MemoryVault:
         c = self._conn.cursor()
 
         # Get count before delete
-        c.execute("""
+        c.execute(
+            """
             SELECT COUNT(*) FROM memories
             WHERE classification = 0 AND created_at < ?
-        """, (cutoff,))
+        """,
+            (cutoff,),
+        )
         count = c.fetchone()[0]
 
         if count > 0:
             # Delete from FTS first (triggers should handle this, but be explicit)
-            c.execute("""
+            c.execute(
+                """
                 DELETE FROM memories
                 WHERE classification = 0 AND created_at < ?
-            """, (cutoff,))
+            """,
+                (cutoff,),
+            )
             self._conn.commit()
             print(f"Purged {count} ephemeral memories older than {max_age_hours} hours")
         else:
@@ -1036,20 +1074,23 @@ class MemoryVault:
             bool: True if lockdown was activated
         """
         try:
-            from .physical_token import require_physical_token
+            from .physical_token import require_physical_token, any_token_configured
         except ImportError:
-            from physical_token import require_physical_token
+            from physical_token import require_physical_token, any_token_configured
 
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("⚠️  VAULT LOCKDOWN REQUESTED")
-        print("="*50)
+        print("=" * 50)
         print(f"\nReason: {reason}")
         print("\nThis will DISABLE ALL memory recalls until unlocked.")
-        print("Physical token authentication required.\n")
 
-        if not require_physical_token("Enter vault lockdown"):
-            print("Lockdown aborted: Physical token required")
-            return False
+        if any_token_configured():
+            print("Physical token authentication required.\n")
+            if not require_physical_token("Enter vault lockdown"):
+                print("Lockdown aborted: Physical token required")
+                return False
+        else:
+            print("No physical token configured — proceeding with confirmation only.\n")
 
         confirm = input("Type 'LOCKDOWN VAULT' to confirm: ").strip()
         if confirm != "LOCKDOWN VAULT":
@@ -1059,20 +1100,23 @@ class MemoryVault:
         timestamp = datetime.now(timezone.utc).isoformat() + "Z"
 
         c = self._conn.cursor()
-        c.execute("""
+        c.execute(
+            """
             UPDATE vault_state SET
                 lockdown = 1,
                 lockdown_since = ?,
                 lockdown_reason = ?
             WHERE id = 1
-        """, (timestamp, reason))
+        """,
+            (timestamp, reason),
+        )
         self._conn.commit()
 
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("🔒 VAULT IS NOW IN LOCKDOWN")
         print(f"   Since: {timestamp}")
         print(f"   Reason: {reason}")
-        print("="*50 + "\n")
+        print("=" * 50 + "\n")
 
         return True
 
@@ -1087,25 +1131,28 @@ class MemoryVault:
             bool: True if lockdown was deactivated
         """
         try:
-            from .physical_token import require_physical_token
+            from .physical_token import require_physical_token, any_token_configured
         except ImportError:
-            from physical_token import require_physical_token
+            from physical_token import require_physical_token, any_token_configured
 
         is_locked, since, reason = self.is_locked_down()
         if not is_locked:
             print("Vault is not in lockdown")
             return False
 
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("🔓 VAULT LOCKDOWN EXIT REQUESTED")
-        print("="*50)
+        print("=" * 50)
         print(f"\nLocked since: {since}")
         print(f"Reason: {reason}")
-        print("\nBoth physical token AND passphrase required to unlock.\n")
 
-        if not require_physical_token("Exit vault lockdown"):
-            print("Unlock aborted: Physical token required")
-            return False
+        if any_token_configured():
+            print("\nBoth physical token AND passphrase required to unlock.\n")
+            if not require_physical_token("Exit vault lockdown"):
+                print("Unlock aborted: Physical token required")
+                return False
+        else:
+            print("\nNo physical token configured — passphrase verification required.\n")
 
         if passphrase is None:
             passphrase = getpass.getpass("Enter unlock passphrase: ")
@@ -1120,8 +1167,7 @@ class MemoryVault:
                 profile_id = row[0]
                 # Find a memory encrypted with this profile to verify against
                 c.execute(
-                    "SELECT salt, ciphertext, nonce FROM memories WHERE encryption_profile = ? LIMIT 1",
-                    (profile_id,)
+                    "SELECT salt, ciphertext, nonce FROM memories WHERE encryption_profile = ? LIMIT 1", (profile_id,)
                 )
                 mem_row = c.fetchone()
                 if mem_row and mem_row[0]:
@@ -1146,19 +1192,21 @@ class MemoryVault:
             return False
 
         c = self._conn.cursor()
-        c.execute("""
+        c.execute(
+            """
             UPDATE vault_state SET
                 lockdown = 0,
                 lockdown_since = NULL,
                 lockdown_reason = NULL
             WHERE id = 1
-        """, )
+        """,
+        )
         self._conn.commit()
 
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("🔓 VAULT LOCKDOWN LIFTED")
         print("   All operations restored")
-        print("="*50 + "\n")
+        print("=" * 50 + "\n")
 
         return True
 
@@ -1176,13 +1224,16 @@ class MemoryVault:
         timestamp = datetime.now(timezone.utc).isoformat() + "Z"
 
         c = self._conn.cursor()
-        c.execute("""
+        c.execute(
+            """
             UPDATE vault_state SET
                 lockdown = 1,
                 lockdown_since = ?,
                 lockdown_reason = ?
             WHERE id = 1
-        """, (timestamp, reason))
+        """,
+            (timestamp, reason),
+        )
         self._conn.commit()
 
         print(f"🔒 VAULT LOCKDOWN ENABLED: {reason}")
@@ -1227,9 +1278,9 @@ class MemoryVault:
             bool: True if rotation was successful
         """
         try:
-            from .physical_token import require_physical_token
+            from .physical_token import require_physical_token, any_token_configured
         except ImportError:
-            from physical_token import require_physical_token
+            from physical_token import require_physical_token, any_token_configured
 
         # Security: Validate profile_id to prevent path traversal
         validate_profile_id(profile_id)
@@ -1237,10 +1288,13 @@ class MemoryVault:
         c = self._conn.cursor()
 
         # Get profile info
-        c.execute("""
+        c.execute(
+            """
             SELECT key_source, rotation_count FROM encryption_profiles
             WHERE profile_id = ?
-        """, (profile_id,))
+        """,
+            (profile_id,),
+        )
         row = c.fetchone()
 
         if not row:
@@ -1256,9 +1310,9 @@ class MemoryVault:
         c.execute("SELECT COUNT(*) FROM memories WHERE encryption_profile = ?", (profile_id,))
         memory_count = c.fetchone()[0]
 
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print(f"🔑 KEY ROTATION: {profile_id}")
-        print("="*50)
+        print("=" * 50)
         print(f"\nKey source: {key_source}")
         print(f"Memories to re-encrypt: {memory_count}")
         print(f"Previous rotations: {rotation_count}")
@@ -1270,11 +1324,13 @@ class MemoryVault:
         if key_source == "KeyFile":
             print("\n⚠️  WARNING: After rotation, securely destroy the OLD keyfile!")
 
-        print("\nPhysical token required for key rotation.\n")
-
-        if not require_physical_token("Rotate encryption key"):
-            print("Rotation aborted: Physical token required")
-            return False
+        if any_token_configured():
+            print("\nPhysical token required for key rotation.\n")
+            if not require_physical_token("Rotate encryption key"):
+                print("Rotation aborted: Physical token required")
+                return False
+        else:
+            print("\nNo physical token configured — proceeding with confirmation only.\n")
 
         # Get current key
         print("\n--- Current Key ---")
@@ -1308,10 +1364,13 @@ class MemoryVault:
             return False
 
         # Fetch all memories for this profile
-        c.execute("""
+        c.execute(
+            """
             SELECT memory_id, ciphertext, nonce, salt, sealed_blob
             FROM memories WHERE encryption_profile = ?
-        """, (profile_id,))
+        """,
+            (profile_id,),
+        )
         memories = c.fetchall()
 
         success_count = 0
@@ -1342,13 +1401,16 @@ class MemoryVault:
                 new_ciphertext, new_nonce = encrypt_memory(new_key, plaintext)
 
                 # Update database
-                c.execute("""
+                c.execute(
+                    """
                     UPDATE memories SET
                         ciphertext = ?,
                         nonce = ?,
                         salt = ?
                     WHERE memory_id = ?
-                """, (new_ciphertext, new_nonce, new_salt, memory_id))
+                """,
+                    (new_ciphertext, new_nonce, new_salt, memory_id),
+                )
 
                 success_count += 1
                 print(f"  ✓ Rotated: {memory_id[:8]}...")
@@ -1365,18 +1427,22 @@ class MemoryVault:
 
         # Update profile rotation tracking
         timestamp = datetime.now(timezone.utc).isoformat() + "Z"
-        c.execute("""
+        c.execute(
+            """
             UPDATE encryption_profiles SET
                 last_rotation = ?,
                 rotation_count = ?
             WHERE profile_id = ?
-        """, (timestamp, rotation_count + 1, profile_id))
+        """,
+            (timestamp, rotation_count + 1, profile_id),
+        )
 
         self._conn.commit()
 
         # For KeyFile, move new keyfile to replace old
         if key_source == "KeyFile":
             import shutil
+
             old_keyfile_backup = keyfile_path + f".old.{rotation_count}"
             shutil.move(keyfile_path, old_keyfile_backup)
             shutil.move(new_keyfile_path, keyfile_path)
@@ -1386,11 +1452,11 @@ class MemoryVault:
         # Clear cached key
         self._key_cache.pop(profile_id, None)
 
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("✓ KEY ROTATION COMPLETE")
         print(f"  Memories rotated: {success_count}")
         print(f"  Rotation count: {rotation_count + 1}")
-        print("="*50 + "\n")
+        print("=" * 50 + "\n")
 
         return True
 
@@ -1415,15 +1481,18 @@ class MemoryVault:
             bool: True if tombstoned successfully
         """
         try:
-            from .physical_token import require_physical_token
+            from .physical_token import require_physical_token, any_token_configured
         except ImportError:
-            from physical_token import require_physical_token
+            from physical_token import require_physical_token, any_token_configured
 
         c = self._conn.cursor()
 
-        c.execute("""
+        c.execute(
+            """
             SELECT classification, tombstoned FROM memories WHERE memory_id = ?
-        """, (memory_id,))
+        """,
+            (memory_id,),
+        )
         row = c.fetchone()
 
         if not row:
@@ -1435,17 +1504,17 @@ class MemoryVault:
             print(f"Memory {memory_id} is already tombstoned")
             return False
 
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print(f"TOMBSTONE MEMORY: {memory_id}")
-        print("="*50)
+        print("=" * 50)
         print(f"\nClassification: Level {classification}")
         print(f"Reason: {reason}")
         if not skip_confirmation:
             print("\nThis will mark the memory as INACCESSIBLE.")
             print("The memory will be retained for audit but cannot be recalled.")
 
-            # Level 3+ requires physical token
-            if classification >= 3:
+            # Level 3+ requires physical token when one is configured
+            if classification >= 3 and any_token_configured():
                 print("\nPhysical token required for Level 3+ tombstoning.\n")
                 if not require_physical_token("Tombstone high-security memory"):
                     print("Tombstone aborted: Physical token required")
@@ -1458,22 +1527,25 @@ class MemoryVault:
 
         timestamp = datetime.now(timezone.utc).isoformat() + "Z"
 
-        c.execute("""
+        c.execute(
+            """
             UPDATE memories SET
                 tombstoned = 1,
                 tombstoned_at = ?,
                 tombstone_reason = ?
             WHERE memory_id = ?
-        """, (timestamp, reason, memory_id))
+        """,
+            (timestamp, reason, memory_id),
+        )
 
         self._conn.commit()
 
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("MEMORY TOMBSTONED")
         print(f"  ID: {memory_id}")
         print(f"  Reason: {reason}")
         print(f"  Timestamp: {timestamp}")
-        print("="*50 + "\n")
+        print("=" * 50 + "\n")
 
         return True
 
@@ -1495,13 +1567,15 @@ class MemoryVault:
 
         results = []
         for row in c.fetchall():
-            results.append({
-                "memory_id": row[0],
-                "classification": row[1],
-                "tombstoned_at": row[2],
-                "reason": row[3],
-                "created_at": row[4]
-            })
+            results.append(
+                {
+                    "memory_id": row[0],
+                    "classification": row[1],
+                    "tombstoned_at": row[2],
+                    "reason": row[3],
+                    "created_at": row[4],
+                }
+            )
 
         return results
 
@@ -1514,10 +1588,13 @@ class MemoryVault:
         """
         c = self._conn.cursor()
 
-        c.execute("""
+        c.execute(
+            """
             SELECT tombstoned, tombstoned_at, tombstone_reason
             FROM memories WHERE memory_id = ?
-        """, (memory_id,))
+        """,
+            (memory_id,),
+        )
         row = c.fetchone()
 
         if not row:

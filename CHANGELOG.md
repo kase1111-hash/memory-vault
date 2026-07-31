@@ -5,6 +5,62 @@ All notable changes to Memory Vault are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**Functionality verification pass.** Exercised every README-advertised workflow
+end-to-end and fixed everything that did not work as documented.
+
+### Fixed
+
+- **Packaging**: `pip install .` now actually installs a `memory_vault` package, making
+  `from memory_vault import MemoryVault`, `python -m memory_vault.cli`, and the
+  `memory-vault` console script work as documented (`pyproject.toml`). Previously the
+  modules were installed flat at site-packages top level and the console script crashed
+  on import.
+- **Boundary fail-closed scope**: Level 0-2 memories are auto-recall per the
+  classification model, but recalls failed hard when the boundary daemon was absent —
+  breaking the Quick Start on any machine without Agent-OS. Levels 0-2 now remain
+  recallable when the daemon is unreachable; an explicit daemon denial still blocks
+  them, and Level 3+ stays fail-closed (`boundary.py`)
+- **Backups were empty by default**: memories in non-exportable profiles were stripped
+  from backups, and the seeded `default-passphrase` profile is non-exportable — so
+  default-profile vaults produced backups with no recoverable content, and `restore`
+  crashed on the NULL ciphertext. Backup now only strips hardware-bound (TPM) content;
+  restore skips stripped entries gracefully (`vault.py`)
+- **Missing `restore` CLI command**: documented in the README but not implemented; added
+  `restore <backup_file> [--passphrase-file] [--yes]` (`cli.py`)
+- **Physical-token gates blocked advertised flows**: `lockdown`, `unlock`, `rotate-key`,
+  escrow create/delete, all dead-man switch operations, and Level 3+ tombstoning
+  unconditionally required a physical token, making them unusable on machines without
+  token hardware/secrets (token deps are optional extras) — dead-man switch arming even
+  failed *silently* with exit code 0. The token is now required only when one is actually
+  configured; Level 5 recalls still hard-require a token
+  (`vault.py`, `escrow.py`, `deadman.py`, `physical_token.py` — new `any_token_configured()`)
+- **`backup --passphrase-file` inverted**: passing the flag triggered an interactive
+  prompt instead of reading the file (`cli.py`)
+- **`search-justifications` crash**: timestamp parsing failed on stored
+  `+00:00Z`-suffixed timestamps (`cli.py`)
+- **`escrow-create` silent failure**: an aborted escrow exited 0 with no output; now
+  reports the abort and exits 1 (`cli.py`)
+- **Dead-man switch payload encryption crashed**: `encrypt_payload_for_heirs()` passed
+  raw bytes to `SealedBox` instead of a `PublicKey` — the code path was previously
+  unreachable because the token gate always aborted first (`deadman.py`)
+- **`boundary.py` import crash** when imported as part of the installed package (bare
+  `from errors import ...` without the package-relative fallback)
+- Version metadata aligned to 0.2.1-alpha in `pyproject.toml` and `__init__.py`
+  (previously still 0.2.0-alpha)
+
+### Documentation
+
+- README Quick Start fixed: it created a profile named `default` while `MemoryObject`
+  defaults to the `default-passphrase` profile (which is auto-seeded), so the example
+  failed with "Profile not found"
+- README CLI examples corrected: `lockdown` takes a positional reason (not `--reason`);
+  `zk-verify` requires the memory id and creation timestamp; `zk-time-proof` requires a
+  timestamp; `dms-heir-add` takes a base64 x25519 key (not an age bech32 key)
+- SPECIFICATION and INTEGRATIONS docs updated to state the fail-closed boundary policy
+  applies to Level 3+ while Levels 0-2 remain available offline
+
 ## [0.2.1-alpha] - 2026-02-20
 
 **Security hardening release.** Remediated all 15 findings from the Agent-OS

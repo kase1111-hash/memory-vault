@@ -13,13 +13,14 @@ import nacl.exceptions
 import base64
 
 # Constants
-KEY_SIZE = SecretBox.KEY_SIZE          # 32 bytes
-NONCE_SIZE = SecretBox.NONCE_SIZE      # 24 bytes
+KEY_SIZE = SecretBox.KEY_SIZE  # 32 bytes
+NONCE_SIZE = SecretBox.NONCE_SIZE  # 24 bytes
 
 # Security: Profile ID validation pattern to prevent path traversal
-PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
+PROFILE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
 
 logger = logging.getLogger(__name__)
+
 
 def validate_profile_id(profile_id: str) -> None:
     """Validate profile_id to prevent path traversal attacks."""
@@ -28,6 +29,7 @@ def validate_profile_id(profile_id: str) -> None:
     if not PROFILE_ID_PATTERN.match(profile_id):
         raise ValueError("Profile ID must start with alphanumeric and contain only alphanumeric, underscore, or hyphen")
 
+
 # Signing key paths
 SIGNING_KEY_PATH = os.path.expanduser("~/.memory_vault/signing_key")
 TPM_SIGNING_HANDLE = 0x81000002
@@ -35,6 +37,7 @@ TPM_SIGNING_HANDLE = 0x81000002
 # TPM availability flag
 try:
     from tpm2_pytss import ESAPI, ESYS_TR  # noqa: F401
+
     TPM_AVAILABLE = True
 except ImportError:
     TPM_AVAILABLE = False
@@ -42,15 +45,16 @@ except ImportError:
 
 # === Core Encryption Functions ===
 
+
 def derive_key_from_passphrase(passphrase: str, salt: bytes = None) -> tuple[bytes, bytes]:
     if salt is None:
         salt = random(SALTBYTES)
     key = argon2id.kdf(
         size=KEY_SIZE,
-        password=passphrase.encode('utf-8'),
+        password=passphrase.encode("utf-8"),
         salt=salt,
         opslimit=OPSLIMIT_SENSITIVE,
-        memlimit=MEMLIMIT_SENSITIVE
+        memlimit=MEMLIMIT_SENSITIVE,
     )
     return key, salt
 
@@ -83,7 +87,7 @@ def encrypt_memory(key: bytes, plaintext: bytes) -> tuple[bytes, bytes]:
     box = SecretBox(key)
     nonce = random(NONCE_SIZE)
     encrypted = box.encrypt(plaintext, nonce)
-    ciphertext = encrypted[len(nonce):]
+    ciphertext = encrypted[len(nonce) :]
     return ciphertext, nonce
 
 
@@ -123,10 +127,7 @@ def tpm_create_and_persist_primary() -> None:
             in_public = TPMT_PUBLIC(
                 type=TPM2_ALG.RSA,
                 nameAlg=TPM2_ALG.SHA256,
-                objectAttributes=(
-                    "fixedtpm|fixedparent|sensitivedataorigin|"
-                    "userwithauth|restricted|decrypt"
-                ),
+                objectAttributes=("fixedtpm|fixedparent|sensitivedataorigin|userwithauth|restricted|decrypt"),
             )
 
             # Create the primary key
@@ -206,10 +207,10 @@ def tpm_generate_sealed_key() -> bytes:
 
             # Serialize and return using JSON with base64 encoding (avoiding pickle for security)
             sealed_blob = {
-                "private": base64.b64encode(private.marshal()).decode('ascii'),
-                "public": base64.b64encode(public.marshal()).decode('ascii'),
+                "private": base64.b64encode(private.marshal()).decode("ascii"),
+                "public": base64.b64encode(public.marshal()).decode("ascii"),
             }
-            return json.dumps(sealed_blob).encode('utf-8')
+            return json.dumps(sealed_blob).encode("utf-8")
 
     except Exception as e:
         raise RuntimeError(f"TPM key sealing failed: {e}") from e
@@ -227,7 +228,7 @@ def tpm_unseal_key(sealed_blob: bytes) -> bytes:
         from tpm2_pytss import ESAPI, TPM2_ALG, ESYS_TR
 
         # Deserialize blob using JSON (secure alternative to pickle)
-        blob_data = json.loads(sealed_blob.decode('utf-8'))
+        blob_data = json.loads(sealed_blob.decode("utf-8"))
         blob_data["private"] = base64.b64decode(blob_data["private"])
         blob_data["public"] = base64.b64decode(blob_data["public"])
 
@@ -266,6 +267,7 @@ def tpm_unseal_key(sealed_blob: bytes) -> bytes:
 
 # === Optional TPM-Sealed Signing Key ===
 
+
 def tpm_seal_signing_key(signing_key: SigningKey) -> None:
     if not TPM_AVAILABLE:
         raise RuntimeError("TPM not available")
@@ -275,18 +277,13 @@ def tpm_seal_signing_key(signing_key: SigningKey) -> None:
 
     with ESAPI() as esys:
         # Bind to PCRs 0-7 (platform + bootloader)
-        policy_digest = esys.PolicyPCR([0,1,2,3,4,5,6,7])
+        policy_digest = esys.PolicyPCR([0, 1, 2, 3, 4, 5, 6, 7])
 
         sealed_handle, _, _ = esys.CreateLoaded(
-            parent=ESYS_TR.OWNER_HIERARCHY,
-            sensitive=private_blob,
-            public=None,
-            policy=policy_digest
+            parent=ESYS_TR.OWNER_HIERARCHY, sensitive=private_blob, public=None, policy=policy_digest
         )
         esys.EvictControl(
-            auth=ESYS_TR.OWNER_HIERARCHY,
-            object_handle=sealed_handle,
-            persistent_handle=TPM_SIGNING_HANDLE
+            auth=ESYS_TR.OWNER_HIERARCHY, object_handle=sealed_handle, persistent_handle=TPM_SIGNING_HANDLE
         )
         esys.FlushContext(sealed_handle)
     print("Ed25519 signing key successfully sealed in TPM")
@@ -300,10 +297,7 @@ def tpm_load_sealed_signing_key() -> SigningKey | None:
     try:
         with ESAPI() as esys:
             handle = esys.Load(
-                parent=ESYS_TR.OWNER_HIERARCHY,
-                private=b"",
-                public=None,
-                persistent_handle=TPM_SIGNING_HANDLE
+                parent=ESYS_TR.OWNER_HIERARCHY, private=b"", public=None, persistent_handle=TPM_SIGNING_HANDLE
             )
             private_blob = esys.Unseal(handle)
             esys.FlushContext(handle)

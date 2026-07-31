@@ -57,10 +57,7 @@ def link_intent(memory_id: str, intent_id: str) -> bool:
     if intent_id not in intent_refs:
         intent_refs.append(intent_id)
 
-    c.execute(
-        "UPDATE memories SET intent_ref = ? WHERE memory_id = ?",
-        (json.dumps(intent_refs), memory_id)
-    )
+    c.execute("UPDATE memories SET intent_ref = ? WHERE memory_id = ?", (json.dumps(intent_refs), memory_id))
     conn.commit()
     conn.close()
 
@@ -103,10 +100,7 @@ def unlink_intent(memory_id: str, intent_id: str) -> bool:
     if intent_id in intent_refs:
         intent_refs.remove(intent_id)
         new_ref = json.dumps(intent_refs) if intent_refs else None
-        c.execute(
-            "UPDATE memories SET intent_ref = ? WHERE memory_id = ?",
-            (new_ref, memory_id)
-        )
+        c.execute("UPDATE memories SET intent_ref = ? WHERE memory_id = ?", (new_ref, memory_id))
         conn.commit()
         conn.close()
         print(f"Unlinked intent {intent_id} from memory {memory_id[:8]}...")
@@ -131,11 +125,14 @@ def get_memories_for_intent(intent_id: str) -> List[dict]:
 
     # Search for intent_id in intent_ref JSON
     # SQLite JSON functions or LIKE pattern matching
-    c.execute("""
+    c.execute(
+        """
         SELECT memory_id, classification, created_at, value_metadata, tombstoned
         FROM memories
         WHERE intent_ref LIKE ? ESCAPE '\\'
-    """, (f'%{_escape_like(intent_id)}%',))
+    """,
+        (f"%{_escape_like(intent_id)}%",),
+    )
 
     results = []
     for row in c.fetchall():
@@ -149,22 +146,26 @@ def get_memories_for_intent(intent_id: str) -> List[dict]:
                 if not isinstance(refs, list):
                     refs = [refs]
                 if intent_id in refs:
-                    results.append({
-                        "memory_id": memory_id,
-                        "classification": classification,
-                        "created_at": created_at,
-                        "metadata": json.loads(metadata) if metadata else {},
-                        "tombstoned": bool(tombstoned)
-                    })
+                    results.append(
+                        {
+                            "memory_id": memory_id,
+                            "classification": classification,
+                            "created_at": created_at,
+                            "metadata": json.loads(metadata) if metadata else {},
+                            "tombstoned": bool(tombstoned),
+                        }
+                    )
             except json.JSONDecodeError:
                 if ref_row[0] == intent_id:
-                    results.append({
-                        "memory_id": memory_id,
-                        "classification": classification,
-                        "created_at": created_at,
-                        "metadata": json.loads(metadata) if metadata else {},
-                        "tombstoned": bool(tombstoned)
-                    })
+                    results.append(
+                        {
+                            "memory_id": memory_id,
+                            "classification": classification,
+                            "created_at": created_at,
+                            "metadata": json.loads(metadata) if metadata else {},
+                            "tombstoned": bool(tombstoned),
+                        }
+                    )
 
     conn.close()
     return results
@@ -213,24 +214,29 @@ def search_by_intent(query: str, limit: int = 20) -> List[dict]:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
 
-    c.execute("""
+    c.execute(
+        """
         SELECT memory_id, classification, created_at, intent_ref, tombstoned
         FROM memories
         WHERE intent_ref LIKE ? ESCAPE '\\'
         ORDER BY created_at DESC
         LIMIT ?
-    """, (f'%{_escape_like(query)}%', limit))
+    """,
+        (f"%{_escape_like(query)}%", limit),
+    )
 
     results = []
     for row in c.fetchall():
         memory_id, classification, created_at, intent_ref, tombstoned = row
-        results.append({
-            "memory_id": memory_id,
-            "classification": classification,
-            "created_at": created_at,
-            "intent_refs": json.loads(intent_ref) if intent_ref else [],
-            "tombstoned": bool(tombstoned)
-        })
+        results.append(
+            {
+                "memory_id": memory_id,
+                "classification": classification,
+                "created_at": created_at,
+                "intent_refs": json.loads(intent_ref) if intent_ref else [],
+                "tombstoned": bool(tombstoned),
+            }
+        )
 
     conn.close()
     return results

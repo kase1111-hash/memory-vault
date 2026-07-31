@@ -3,6 +3,7 @@ Tests for intentlog.py - Intent linking between memories and intents.
 
 Uses a temporary database with the memories table schema.
 """
+
 import os
 import sys
 import sqlite3

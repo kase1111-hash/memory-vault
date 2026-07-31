@@ -1,6 +1,7 @@
 """
 Tests for data models.
 """
+
 import os
 import sys
 
@@ -42,11 +43,7 @@ class TestMemoryObject:
 
     def test_memory_object_with_metadata(self):
         """Verify MemoryObject accepts metadata."""
-        metadata = {
-            "source": "test",
-            "importance": "high",
-            "tags": ["unit", "test"]
-        }
+        metadata = {"source": "test", "importance": "high", "tags": ["unit", "test"]}
 
         memory = MemoryObject(
             memory_id="test-meta",
