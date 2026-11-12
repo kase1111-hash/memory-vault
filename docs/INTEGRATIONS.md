@@ -13,6 +13,7 @@ This document covers integration guides for the Memory Vault system: Boundary Da
 2. [IntentLog Integration](#2-intentlog-integration)
 3. [Physical Token Integration (Level 5)](#3-physical-token-integration-level-5) (experimental)
 4. [Encrypted Release to Heirs (Dead-Man Switch)](#4-encrypted-release-to-heirs-dead-man-switch) (experimental)
+5. [AI Assistants and Agent Frameworks (MCP)](#5-ai-assistants-and-agent-frameworks-mcp)
 
 ---
 
@@ -41,22 +42,20 @@ import os
 
 SOCKET_PATH = os.path.expanduser("~/.agent-os/api/boundary.sock")
 
+
 def check_recall(classification: int) -> tuple[bool, str]:
     """
     Query the boundary-daemon for recall permission.
     Returns (permitted: bool, reason: str)
     """
-    request = {
-        "command": "check_recall",
-        "params": {"memory_class": classification}
-    }
+    request = {"command": "check_recall", "params": {"memory_class": classification}}
 
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
             s.settimeout(5)
             s.connect(SOCKET_PATH)
-            s.sendall(json.dumps(request).encode('utf-8') + b'\n')
-            response_data = s.recv(4096).decode('utf-8')
+            s.sendall(json.dumps(request).encode("utf-8") + b"\n")
+            response_data = s.recv(4096).decode("utf-8")
             response = json.loads(response_data)
             permitted = response.get("permitted", False)
             reason = response.get("reason", "No reason provided")
@@ -146,12 +145,9 @@ from uuid import uuid4
 
 vault = MemoryVault()
 
+
 def store_critical_intent(
-    content: bytes,
-    classification: int,
-    intent_id: str,
-    metadata: dict,
-    cooldown_seconds: int = 0
+    content: bytes, classification: int, intent_id: str, metadata: dict, cooldown_seconds: int = 0
 ):
     """
     Store a high-value intent artifact in the Memory Vault.
@@ -164,7 +160,7 @@ def store_critical_intent(
         encryption_profile="default-passphrase",
         intent_ref=intent_id,
         access_policy={"cooldown_seconds": cooldown_seconds},
-        value_metadata=metadata | {"source": "IntentLog", "intent_id": intent_id}
+        value_metadata=metadata | {"source": "IntentLog", "intent_id": intent_id},
     )
     vault.store_memory(obj)
     print(f"Critical intent {intent_id} secured in Vault as {obj.memory_id}")
@@ -224,17 +220,20 @@ from typing import Optional
 try:
     from fido2.hid import CtapHidDevice
     from fido2.client import Fido2Client
+
     FIDO2_AVAILABLE = True
 except ImportError:
     FIDO2_AVAILABLE = False
 
 try:
     import pyotp
+
     OTP_AVAILABLE = True
 except ImportError:
     OTP_AVAILABLE = False
 
 TOKEN_CHALLENGE_PATH = os.path.expanduser("~/.memory_vault/token_challenge")
+
 
 def require_physical_token(justification: str = "") -> bool:
     """
@@ -324,6 +323,7 @@ from nacl.public import Box, SealedBox
 from nacl.encoding import Base64Encoder
 import base64
 
+
 def add_heir(name: str, public_key_b64: str):
     """Register a trusted heir with their public key"""
     try:
@@ -335,8 +335,7 @@ def add_heir(name: str, public_key_b64: str):
 
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO dms_heirs (name, public_key_b64) VALUES (?, ?)",
-              (name, public_key_b64))
+    c.execute("INSERT INTO dms_heirs (name, public_key_b64) VALUES (?, ?)", (name, public_key_b64))
     conn.commit()
     conn.close()
     print(f"Heir '{name}' added")
@@ -351,12 +350,14 @@ def get_heir_release_packages() -> list[dict]:
     results = []
     for name, pubkey, enc_blob, mids_json in c.fetchall():
         if enc_blob:
-            results.append({
-                "heir": name,
-                "public_key": pubkey,
-                "encrypted_payload_b64": base64.b64encode(enc_blob).decode(),
-                "memory_ids": json.loads(mids_json) if mids_json else []
-            })
+            results.append(
+                {
+                    "heir": name,
+                    "public_key": pubkey,
+                    "encrypted_payload_b64": base64.b64encode(enc_blob).decode(),
+                    "memory_ids": json.loads(mids_json) if mids_json else [],
+                }
+            )
     conn.close()
     return results
 ```
@@ -421,3 +422,46 @@ age -d -i heir-key.txt dms-release-alice.json
 | IntentLog | Secure persistence for high-value intents | Production |
 | Physical Tokens | Level 5 physical presence requirement | Experimental |
 | Heir Release | Secure succession and dead-man switches | Experimental |
+
+---
+
+## 5. AI Assistants and Agent Frameworks (MCP)
+
+The `memory-vault-mcp` command serves the vault over the Model Context Protocol (stdio). Setup,
+the tool list, configuration variables and the security boundaries are in the
+[README](../README.md#use-with-ai-assistants-mcp).
+
+### How the gates map onto an agent
+
+| Vault gate | Behaviour through the MCP server |
+|------------|----------------------------------|
+| Classification 0-2 | Recalled automatically |
+| Classification 3-4 | Boundary daemon check, then the user is asked through the client (MCP elicitation). No answer, a decline, or a client without elicitation support all deny the recall |
+| Classification 5 | Always refused; the owner recalls from the CLI with a physical token |
+| Lockdown, tombstones, cooldowns | Enforced exactly as for any other caller |
+| Audit log | Every attempt is logged with requester `mcp-agent` and the model's stated justification |
+
+### Embedding in your own agent
+
+`VaultToolkit` (in `mcp_server.py`) has no MCP dependency. Each method takes and returns plain
+JSON-serialisable values, so it can back any tool-calling loop:
+
+```python
+from memory_vault.mcp_server import VaultToolkit
+
+memory = VaultToolkit.from_env()  # or VaultToolkit(db_path=..., profile=..., passphrase=...)
+saved = memory.remember("Deploys go out on Tuesdays", summary="Deployment schedule", tags=["ops"])
+hits = memory.search_memories("when do we deploy?")["memories"]
+text = memory.recall(hits[0]["memory_id"], justification="scheduling a release")["content"]
+```
+
+For Level 3-4 memories, call `approval_prompt(memory_id, justification)`. If it returns a
+question, put it to the human yourself and pass `human_approved=True` to `recall` only if they
+agree.
+
+To build a different front end directly on `MemoryVault`, construct it with
+`interactive=False` (so it never reads the terminal) and an `approver` callback:
+
+```python
+vault = MemoryVault(interactive=False, approver=lambda memory_id, level, requester, why: ask_user(why))
+```

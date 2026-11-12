@@ -5,6 +5,7 @@ import getpass
 import os
 import uuid
 import hashlib
+import hmac
 import base64
 import logging
 import time
@@ -24,8 +25,9 @@ try:
         load_or_create_signing_key,
         sign_root,
         validate_profile_id,
+        _restrict_permissions,
     )
-    from .db import DB_PATH, init_db
+    from .db import DB_PATH, init_db, build_fts_query
     from .boundary import check_recall, BoundaryClient
     from .merkle import hash_leaf, build_tree
     from .errors import (
@@ -50,8 +52,9 @@ except ImportError:
         load_or_create_signing_key,
         sign_root,
         validate_profile_id,
+        _restrict_permissions,
     )
-    from db import DB_PATH, init_db
+    from db import DB_PATH, init_db, build_fts_query
     from boundary import check_recall, BoundaryClient
     from merkle import hash_leaf, build_tree
     from errors import (
@@ -72,17 +75,28 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryVault:
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: str = None, interactive: bool = True, approver=None):
         """
         Initialize the MemoryVault.
 
         Args:
             db_path: Optional path to the database file. If not provided, uses default DB_PATH.
+            interactive: If False the vault never reads from the terminal. Missing
+                passphrases raise ProfileKeyMissingError and gates that need a human
+                at the keyboard fail closed. Use this when the vault is driven by an
+                agent, a server, or anything else without a TTY.
+            approver: Optional callable ``(memory_id, classification, requester,
+                justification) -> bool`` that decides Level 3+ recalls in place of the
+                terminal prompt (e.g. a GUI dialog or an MCP elicitation).
         """
         self.db_path = db_path if db_path else DB_PATH
+        self.interactive = interactive
+        self._approver = approver
         self._conn = init_db(self.db_path)
-        self._key_cache = {}  # {profile_id: (key_bytes, expiry_time)}
+        # {(profile_id, salt): (key_bytes, expiry_time, passphrase_tag)}
+        self._key_cache = {}
         self._key_ttl = 300  # 5 minutes
+        self._cache_tag_key = nacl_random(32)  # keys the in-memory passphrase tags
         self._signing_key = None  # Lazy-loaded via property
         self._boundary_client = BoundaryClient()
         self._memory_auditors = []  # Registered recall audit callbacks
@@ -103,20 +117,42 @@ class MemoryVault:
     def signing_key(self, value):
         self._signing_key = value
 
-    def _cache_key(self, profile_id: str, key: bytes):
-        """Cache a key with TTL."""
-        self._key_cache[profile_id] = (key, time.monotonic() + self._key_ttl)
+    def _passphrase_tag(self, passphrase: str) -> bytes:
+        """Keyed digest used to tell whether a cached key came from this passphrase."""
+        return hashlib.blake2b(passphrase.encode("utf-8"), key=self._cache_tag_key, digest_size=16).digest()
 
-    def _get_cached_key(self, profile_id: str) -> bytes | None:
-        """Get a cached key if it exists and hasn't expired."""
-        entry = self._key_cache.get(profile_id)
+    def _cache_key(self, profile_id: str, key: bytes, salt: bytes = None, passphrase: str = None):
+        """Cache a key with TTL.
+
+        Keys are cached per (profile, salt): a passphrase-derived key is only valid
+        for the salt it was derived with, so it must never be reused for another.
+        """
+        now = time.monotonic()
+        self._key_cache = {k: v for k, v in self._key_cache.items() if v[1] > now}
+        tag = self._passphrase_tag(passphrase) if passphrase is not None else None
+        self._key_cache[(profile_id, salt)] = (key, now + self._key_ttl, tag)
+
+    def _get_cached_key(self, profile_id: str, salt: bytes = None, passphrase: str = None) -> bytes | None:
+        """Get a cached key if it exists and hasn't expired.
+
+        When a passphrase is supplied, the cached key is only returned if it was
+        derived from that same passphrase, so a wrong passphrase is never accepted
+        just because the right one was used earlier.
+        """
+        entry = self._key_cache.get((profile_id, salt))
         if entry is None:
             return None
-        key, expiry = entry
+        key, expiry, tag = entry
         if time.monotonic() > expiry:
-            del self._key_cache[profile_id]
+            del self._key_cache[(profile_id, salt)]
+            return None
+        if passphrase is not None and (tag is None or not hmac.compare_digest(tag, self._passphrase_tag(passphrase))):
             return None
         return key
+
+    def _forget_profile_keys(self, profile_id: str):
+        """Drop every cached key belonging to a profile."""
+        self._key_cache = {k: v for k, v in self._key_cache.items() if k[0] != profile_id}
 
     def _clear_key_cache(self):
         """Clear all cached keys."""
@@ -181,20 +217,21 @@ class MemoryVault:
             keyfile_path = make_keyfile(profile_id)
             print(f"Generated keyfile: {keyfile_path}")
 
+        kdf_salt = nacl_random(16) if key_source == "HumanPassphrase" else None
         c.execute(
             """
             INSERT INTO encryption_profiles
-            (profile_id, cipher, key_source, rotation_policy, exportable)
-            VALUES (?, ?, ?, ?, ?)
+            (profile_id, cipher, key_source, rotation_policy, exportable, kdf_salt)
+            VALUES (?, ?, ?, ?, ?, ?)
         """,
-            (profile_id, cipher, key_source, rotation_policy, int(exportable)),
+            (profile_id, cipher, key_source, rotation_policy, int(exportable), kdf_salt),
         )
         self._conn.commit()
 
         # If passphrase provided, cache the derived key for later use
         if passphrase and key_source == "HumanPassphrase":
-            key, _ = derive_key_from_passphrase(passphrase)
-            self._cache_key(profile_id, key)
+            key, _ = derive_key_from_passphrase(passphrase, kdf_salt)
+            self._cache_key(profile_id, key, kdf_salt, passphrase)
 
         print(f"Created profile: {profile_id} ({key_source})")
         return profile_id
@@ -210,22 +247,68 @@ class MemoryVault:
 
     # ==================== Key Handling ====================
 
-    def _get_or_prompt_key(self, profile_id: str, key_source: str, salt: bytes = None) -> bytes:
-        cached = self._get_cached_key(profile_id)
-        if cached is not None:
-            return cached
+    def _resolve_key(self, profile_id: str, key_source: str, salt: bytes = None, passphrase: str = None):
+        """Return ``(key, fresh_passphrase)`` for a profile.
 
-        if key_source == "HumanPassphrase":
-            passphrase = getpass.getpass(f"Enter passphrase for profile '{profile_id}': ")
-            key, _ = derive_key_from_passphrase(passphrase, salt)
-        elif key_source == "KeyFile":
+        ``fresh_passphrase`` is the passphrase a key was just derived from, or None
+        when the key came from the cache or a keyfile. Freshly derived keys are NOT
+        cached here: the caller caches them (``_cache_key``) once the key has been
+        proven correct, so a mistyped passphrase can never poison the cache.
+        """
+        if key_source == "KeyFile":
+            cached = self._get_cached_key(profile_id)
+            if cached is not None:
+                return cached, None
             keyfile_path = os.path.expanduser(f"~/.memory_vault/keys/{profile_id}.key")
             key = load_key_from_file(keyfile_path)
-        else:
-            raise ValueError("Unsupported key_source in cache path")
+            self._cache_key(profile_id, key)
+            return key, None
 
-        self._cache_key(profile_id, key)
-        return key
+        if key_source != "HumanPassphrase":
+            raise ValueError(f"Unsupported key_source: {key_source}")
+
+        cached = self._get_cached_key(profile_id, salt, passphrase)
+        if cached is not None:
+            return cached, None
+
+        if passphrase is None:
+            if not self.interactive:
+                raise ProfileKeyMissingError(
+                    f"Passphrase required for profile '{profile_id}' (vault is non-interactive)"
+                )
+            passphrase = getpass.getpass(f"Enter passphrase for profile '{profile_id}': ")
+        key, _ = derive_key_from_passphrase(passphrase, salt)
+        return key, passphrase
+
+    def _profile_salt(self, cursor, profile_id: str) -> bytes:
+        """Return the profile's Argon2id salt, creating it on first use."""
+        cursor.execute("SELECT kdf_salt FROM encryption_profiles WHERE profile_id = ?", (profile_id,))
+        row = cursor.fetchone()
+        if row and row[0]:
+            return bytes(row[0])
+        salt = nacl_random(16)
+        cursor.execute("UPDATE encryption_profiles SET kdf_salt = ? WHERE profile_id = ?", (salt, profile_id))
+        return salt
+
+    def _verify_profile_key(self, cursor, profile_id: str, salt: bytes, key: bytes) -> None:
+        """Refuse a key that cannot open what the profile already holds.
+
+        Without this, a mistyped passphrase on store would silently encrypt the
+        new memory under a key nobody knows.
+        """
+        cursor.execute(
+            "SELECT ciphertext, nonce FROM memories WHERE encryption_profile = ? AND salt = ? LIMIT 1",
+            (profile_id, salt),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return
+        try:
+            decrypt_memory(key, row[0], row[1])
+        except Exception as e:
+            raise DecryptionError(
+                f"Passphrase does not match the one protecting existing memories in profile '{profile_id}'"
+            ) from e
 
     # ==================== Memory Operations ====================
 
@@ -253,7 +336,9 @@ class MemoryVault:
             raise ValueError(f"Profile '{obj.encryption_profile}' not found")
         key_source = row[0]
 
-        salt = nacl_random(16) if key_source == "HumanPassphrase" else None
+        # One Argon2id salt per profile (not per memory): the derived key is cached
+        # per (profile, salt), so only the first operation in a session pays the KDF.
+        salt = self._profile_salt(c, obj.encryption_profile) if key_source == "HumanPassphrase" else None
         sealed_blob = None
         ciphertext = None
         nonce = None
@@ -268,12 +353,10 @@ class MemoryVault:
             ciphertext, nonce = encrypt_memory(ephemeral_key, obj.content_plaintext)
             sealed_blob = tpm_generate_sealed_key()  # Seals ephemeral_key
         else:
-            # If passphrase provided, derive and cache the key
-            if passphrase and key_source == "HumanPassphrase":
-                key, _ = derive_key_from_passphrase(passphrase, salt)
-                self._cache_key(obj.encryption_profile, key)
-            else:
-                key = self._get_or_prompt_key(obj.encryption_profile, key_source, salt)
+            key, fresh_passphrase = self._resolve_key(obj.encryption_profile, key_source, salt, passphrase or None)
+            if fresh_passphrase is not None:
+                self._verify_profile_key(c, obj.encryption_profile, salt, key)
+                self._cache_key(obj.encryption_profile, key, salt, fresh_passphrase)
             ciphertext, nonce = encrypt_memory(key, obj.content_plaintext)
 
         obj.content_hash = hashlib.sha256(obj.content_plaintext).hexdigest()
@@ -351,7 +434,7 @@ class MemoryVault:
 
         # Capture column names immediately after query
         columns = [d[0] for d in c.description]
-        row_dict = dict(zip(columns, row))
+        row_dict = dict(zip(columns, row, strict=True))
 
         # Check if memory is tombstoned
         if row_dict.get("tombstoned"):
@@ -380,12 +463,25 @@ class MemoryVault:
 
         # 2. Human approval
         if classification >= 3:
-            print(f"[Level {classification}] Human approval required.")
-            approve = input("Approve recall? (yes/no): ").strip().lower()
-            if approve != "yes":
-                self._log_recall(c, memory_id, requester, False, justification + " | human denied")
+            if self._approver is not None:
+                approved = bool(self._approver(memory_id, classification, requester, justification))
+                denial = "human denied"
+            elif self.interactive:
+                print(f"[Level {classification}] Human approval required.")
+                approved = input("Approve recall? (yes/no): ").strip().lower() == "yes"
+                denial = "human denied"
+            else:
+                # Fail closed: nobody is available to approve.
+                approved = False
+                denial = "no approver available"
+            if not approved:
+                self._log_recall(c, memory_id, requester, False, justification + f" | {denial}")
                 self._conn.commit()
-                exc = ApprovalRequiredError("Recall denied by human")
+                exc = ApprovalRequiredError(
+                    "Recall denied by human"
+                    if denial == "human denied"
+                    else f"Level {classification} recall needs human approval, but no approver is available"
+                )
                 raise exc
 
         # 3. Cooldown
@@ -401,6 +497,11 @@ class MemoryVault:
 
         # 4. Physical token (Level 5 only)
         if classification == 5:
+            if not self.interactive:
+                # The token flow prompts on the terminal; without one, fail closed.
+                self._log_recall(c, memory_id, requester, False, justification + " | token unavailable")
+                self._conn.commit()
+                raise PhysicalTokenError("Level 5 recall requires a physical token at an interactive terminal")
             try:
                 from .physical_token import require_physical_token
             except ImportError:
@@ -416,6 +517,7 @@ class MemoryVault:
         # 5. Key & decrypt
         c.execute("SELECT key_source FROM encryption_profiles WHERE profile_id = ?", (encryption_profile,))
         key_source = c.fetchone()[0]
+        fresh_passphrase = None
 
         try:
             if key_source == "TPM":
@@ -426,12 +528,12 @@ class MemoryVault:
                 if not sealed_blob:
                     raise ProfileKeyMissingError("TPM sealed key missing")
                 key = tpm_unseal_key(sealed_blob)
-            elif passphrase and key_source == "HumanPassphrase":
-                key, _ = derive_key_from_passphrase(passphrase, salt)
-                self._cache_key(encryption_profile, key)
             else:
-                key = self._get_or_prompt_key(encryption_profile, key_source, salt)
-        except MemoryVaultError:
+                salt = bytes(salt) if salt is not None else None
+                key, fresh_passphrase = self._resolve_key(encryption_profile, key_source, salt, passphrase or None)
+        except MemoryVaultError as e:
+            self._log_recall(c, memory_id, requester, False, f"key error: {e.message}")
+            self._conn.commit()
             raise
         except Exception as e:
             logger.error("Key access failed for profile '%s': %s", encryption_profile, e)
@@ -457,6 +559,10 @@ class MemoryVault:
                 self._conn.commit()
                 raise DecryptionError("Content hash mismatch after decryption - possible tampering")
 
+        # The key is now proven correct, so it is safe to cache.
+        if fresh_passphrase is not None:
+            self._cache_key(encryption_profile, key, salt, fresh_passphrase)
+
         # 5c. Run registered memory auditors (T2-02)
         for auditor in self._memory_auditors:
             auditor(memory_id, plaintext, classification)
@@ -466,6 +572,90 @@ class MemoryVault:
         self._conn.commit()
 
         return plaintext
+
+    # ==================== Discovery (no decryption) ====================
+
+    @staticmethod
+    def _info_from_row(row) -> dict:
+        try:
+            metadata = json.loads(row[6]) if row[6] else None
+        except (TypeError, ValueError):
+            metadata = None
+        return {
+            "memory_id": row[0],
+            "created_at": row[1],
+            "created_by": row[2],
+            "classification": row[3],
+            "encryption_profile": row[4],
+            "intent_ref": row[5],
+            "metadata": metadata,
+            "tombstoned": bool(row[7]),
+        }
+
+    def get_memory_info(self, memory_id: str) -> dict:
+        """Return a memory's unencrypted envelope (never its content).
+
+        Raises:
+            MemoryNotFoundError: Memory does not exist
+        """
+        c = self._conn.cursor()
+        c.execute(
+            """
+            SELECT memory_id, created_at, created_by, classification, encryption_profile,
+                   intent_ref, value_metadata, tombstoned
+            FROM memories WHERE memory_id = ?
+        """,
+            (memory_id,),
+        )
+        row = c.fetchone()
+        if not row:
+            raise MemoryNotFoundError(f"Memory '{memory_id}' not found")
+        return self._info_from_row(row)
+
+    def list_memories(
+        self, limit: int = 50, max_classification: int = None, include_tombstoned: bool = False
+    ) -> list[dict]:
+        """List memory envelopes, newest first. Content is never decrypted."""
+        c = self._conn.cursor()
+        c.execute(
+            """
+            SELECT memory_id, created_at, created_by, classification, encryption_profile,
+                   intent_ref, value_metadata, tombstoned
+            FROM memories
+            WHERE (? IS NULL OR classification <= ?)
+              AND (? OR COALESCE(tombstoned, 0) = 0)
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT ?
+        """,
+            (max_classification, max_classification, int(include_tombstoned), max(1, int(limit))),
+        )
+        return [self._info_from_row(r) for r in c.fetchall()]
+
+    def search_memories(self, query: str, limit: int = 10, include_tombstoned: bool = False) -> list[dict]:
+        """Find memories whose metadata matches a free-text query, best match first.
+
+        Memory content is encrypted and therefore not searchable: only
+        ``value_metadata`` (which is stored unencrypted) is indexed. The query is
+        plain text, not FTS5 syntax - any word (or word prefix) may match.
+        """
+        fts_query = build_fts_query(query)
+        if not fts_query:
+            return []
+        c = self._conn.cursor()
+        c.execute(
+            """
+            SELECT m.memory_id, m.created_at, m.created_by, m.classification, m.encryption_profile,
+                   m.intent_ref, m.value_metadata, m.tombstoned
+            FROM memories_fts
+            JOIN memories m ON m.rowid = memories_fts.rowid
+            WHERE memories_fts MATCH ?
+              AND (? OR COALESCE(m.tombstoned, 0) = 0)
+            ORDER BY bm25(memories_fts)
+            LIMIT ?
+        """,
+            (fts_query, int(include_tombstoned), max(1, int(limit))),
+        )
+        return [self._info_from_row(r) for r in c.fetchall()]
 
     # ==================== Audit Logging + Merkle + Signing ====================
 
@@ -598,7 +788,7 @@ class MemoryVault:
         columns = [desc[0] for desc in c.description]
 
         for row in c.fetchall():
-            memory_dict = dict(zip(columns, row))
+            memory_dict = dict(zip(columns, row, strict=True))
 
             # Check if memory is exportable
             c.execute(
@@ -639,7 +829,10 @@ class MemoryVault:
         profiles = []
         profile_columns = [desc[0] for desc in c.description]
         for row in c.fetchall():
-            profiles.append(dict(zip(profile_columns, row)))
+            profile = dict(zip(profile_columns, row, strict=True))
+            if profile.get("kdf_salt"):
+                profile["kdf_salt"] = base64.b64encode(profile["kdf_salt"]).decode()
+            profiles.append(profile)
 
         # Create backup payload
         backup_data = {
@@ -732,11 +925,18 @@ class MemoryVault:
 
         # Restore encryption profiles
         for profile in backup_data.get("encryption_profiles", []):
+            kdf_salt = profile.get("kdf_salt")
             c.execute(
                 """
-                INSERT OR REPLACE INTO encryption_profiles
-                (profile_id, cipher, key_source, rotation_policy, exportable)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO encryption_profiles
+                (profile_id, cipher, key_source, rotation_policy, exportable, kdf_salt)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(profile_id) DO UPDATE SET
+                    cipher = excluded.cipher,
+                    key_source = excluded.key_source,
+                    rotation_policy = excluded.rotation_policy,
+                    exportable = excluded.exportable,
+                    kdf_salt = COALESCE(encryption_profiles.kdf_salt, excluded.kdf_salt)
             """,
                 (
                     profile["profile_id"],
@@ -744,6 +944,7 @@ class MemoryVault:
                     profile["key_source"],
                     profile["rotation_policy"],
                     profile["exportable"],
+                    base64.b64decode(kdf_salt) if kdf_salt else None,
                 ),
             )
 
@@ -1354,7 +1555,7 @@ class MemoryVault:
             new_key = nacl_random(32)
             os.makedirs(os.path.dirname(new_keyfile_path), exist_ok=True)
             with open(new_keyfile_path, "wb") as f:
-                os.fchmod(f.fileno(), 0o600)
+                _restrict_permissions(f, 0o600)
                 f.write(new_key)
             print(f"New keyfile generated: {new_keyfile_path}")
 
@@ -1376,26 +1577,23 @@ class MemoryVault:
         success_count = 0
         error_count = 0
 
+        # One new key (and salt) for the whole profile; old keys are derived once
+        # per distinct salt rather than once per memory.
+        new_salt = None
+        old_keys = {}
+        if key_source == "HumanPassphrase":
+            new_key, new_salt = derive_key_from_passphrase(new_passphrase, nacl_random(16))
+        else:
+            old_keys[None] = load_key_from_file(keyfile_path)
+
         for memory_id, ciphertext, nonce, old_salt, _sealed_blob in memories:
             try:
-                # Derive old key
-                if key_source == "HumanPassphrase":
-                    old_key, _ = derive_key_from_passphrase(old_passphrase, old_salt)
-                else:
-                    old_key = load_key_from_file(keyfile_path)
+                old_salt = bytes(old_salt) if old_salt is not None else None
+                if old_salt not in old_keys:
+                    old_keys[old_salt], _ = derive_key_from_passphrase(old_passphrase, old_salt)
 
                 # Decrypt with old key
-                plaintext = decrypt_memory(old_key, ciphertext, nonce)
-
-                # Generate new salt/nonce
-                new_salt = nacl_random(16) if key_source == "HumanPassphrase" else None
-                new_nonce = nacl_random(24)
-
-                # Derive new key
-                if key_source == "HumanPassphrase":
-                    new_key, new_salt = derive_key_from_passphrase(new_passphrase, new_salt)
-                else:
-                    new_key = new_key  # Already have the key
+                plaintext = decrypt_memory(old_keys[old_salt], ciphertext, nonce)
 
                 # Encrypt with new key
                 new_ciphertext, new_nonce = encrypt_memory(new_key, plaintext)
@@ -1431,10 +1629,11 @@ class MemoryVault:
             """
             UPDATE encryption_profiles SET
                 last_rotation = ?,
-                rotation_count = ?
+                rotation_count = ?,
+                kdf_salt = COALESCE(?, kdf_salt)
             WHERE profile_id = ?
         """,
-            (timestamp, rotation_count + 1, profile_id),
+            (timestamp, rotation_count + 1, new_salt, profile_id),
         )
 
         self._conn.commit()
@@ -1450,7 +1649,7 @@ class MemoryVault:
             print(f"⚠️  IMPORTANT: Securely delete {old_keyfile_backup} after verifying rotation!")
 
         # Clear cached key
-        self._key_cache.pop(profile_id, None)
+        self._forget_profile_keys(profile_id)
 
         print("\n" + "=" * 50)
         print("✓ KEY ROTATION COMPLETE")

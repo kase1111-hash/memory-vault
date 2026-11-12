@@ -66,6 +66,7 @@ This script requires ONLY Python 3 and PyNaCl (`pip install pynacl`):
 Memory Vault Minimal Recovery Script
 No Memory Vault code required - just PyNaCl
 """
+
 from nacl.pwhash.argon2id import kdf, OPSLIMIT_SENSITIVE, MEMLIMIT_SENSITIVE
 from nacl.secret import SecretBox
 
@@ -88,6 +89,7 @@ CIPHERTEXT_HEX = "your-ciphertext-hex-here"
 # RECOVERY CODE
 # ===========================================
 
+
 def recover_with_passphrase(passphrase, salt_hex, nonce_hex, ciphertext_hex):
     """Recover data encrypted with HumanPassphrase profile."""
     salt = bytes.fromhex(salt_hex)
@@ -97,10 +99,10 @@ def recover_with_passphrase(passphrase, salt_hex, nonce_hex, ciphertext_hex):
     # Derive key using Argon2id (same params as Memory Vault)
     key = kdf(
         size=32,
-        password=passphrase.encode('utf-8'),
+        password=passphrase.encode("utf-8"),
         salt=salt,
         opslimit=OPSLIMIT_SENSITIVE,
-        memlimit=MEMLIMIT_SENSITIVE
+        memlimit=MEMLIMIT_SENSITIVE,
     )
 
     # Decrypt using SecretBox (XSalsa20-Poly1305)
@@ -108,6 +110,7 @@ def recover_with_passphrase(passphrase, salt_hex, nonce_hex, ciphertext_hex):
     plaintext = box.decrypt(nonce + ciphertext)
 
     return plaintext
+
 
 def recover_with_keyfile(key_hex, nonce_hex, ciphertext_hex):
     """Recover data encrypted with KeyFile profile."""
@@ -119,6 +122,7 @@ def recover_with_keyfile(key_hex, nonce_hex, ciphertext_hex):
     plaintext = box.decrypt(nonce + ciphertext)
 
     return plaintext
+
 
 # ===========================================
 # RUN RECOVERY
@@ -134,7 +138,7 @@ if __name__ == "__main__":
     # plaintext = recover_with_keyfile(KEY_HEX, NONCE_HEX, CIPHERTEXT_HEX)
 
     print("Recovered data:")
-    print(plaintext.decode('utf-8', errors='replace'))
+    print(plaintext.decode("utf-8", errors="replace"))
 ```
 
 ---
@@ -147,7 +151,7 @@ Memory Vault uses these exact parameters for key derivation:
 |-----------|-------|-------|
 | Algorithm | Argon2id | Memory-hard KDF |
 | Output size | 32 bytes | XSalsa20-Poly1305 key |
-| Salt size | 16 bytes | Random per-memory |
+| Salt size | 16 bytes | Stored with each memory (shared across a profile since 0.3.0) |
 | opslimit | OPSLIMIT_SENSITIVE | 4 iterations |
 | memlimit | MEMLIMIT_SENSITIVE | 1GB memory |
 

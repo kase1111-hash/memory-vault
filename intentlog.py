@@ -8,7 +8,6 @@ the relationship between memories and the intents that created/used them.
 
 import sqlite3
 import json
-from typing import List
 
 try:
     from .db import DB_PATH
@@ -110,7 +109,7 @@ def unlink_intent(memory_id: str, intent_id: str) -> bool:
     return False
 
 
-def get_memories_for_intent(intent_id: str) -> List[dict]:
+def get_memories_for_intent(intent_id: str) -> list[dict]:
     """
     Find all memories linked to a specific intent.
 
@@ -171,7 +170,7 @@ def get_memories_for_intent(intent_id: str) -> List[dict]:
     return results
 
 
-def get_intents_for_memory(memory_id: str) -> List[str]:
+def get_intents_for_memory(memory_id: str) -> list[str]:
     """
     Get all intent IDs linked to a memory.
 
@@ -200,7 +199,7 @@ def get_intents_for_memory(memory_id: str) -> List[str]:
         return [row[0]] if row[0] else []
 
 
-def search_by_intent(query: str, limit: int = 20) -> List[dict]:
+def search_by_intent(query: str, limit: int = 20) -> list[dict]:
     """
     Search memories by intent reference pattern.
 

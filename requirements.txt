@@ -10,7 +10,7 @@ tpm2-pytss>=2.1.0; platform_system=="Linux"
 fido2>=1.1.0      # For FIDO2/U2F tokens (YubiKey, Nitrokey, etc.)
 pyotp>=2.8.0      # For TOTP/HOTP fallback
 
-# Standard library (included with Python 3.7+)
+# Standard library (included with Python 3.10+)
 # - sqlite3
 # - json
 # - hashlib

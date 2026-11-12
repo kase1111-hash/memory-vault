@@ -11,6 +11,7 @@ import sqlite3
 try:
     from memory_vault.vault import MemoryVault
     from memory_vault.models import MemoryObject
+    from memory_vault.errors import MemoryVaultError
     from memory_vault.db import DB_PATH, search_memories_metadata, search_recall_justifications
     from memory_vault.deadman import (
         init_deadman_switch,
@@ -40,6 +41,7 @@ try:
 except ImportError:
     from vault import MemoryVault
     from models import MemoryObject
+    from errors import MemoryVaultError
     from db import DB_PATH, search_memories_metadata, search_recall_justifications
     from deadman import (
         init_deadman_switch,
@@ -234,12 +236,20 @@ def main():
     # ==================== Command Execution ====================
 
     if args.command == "create-profile":
-        vault.create_profile(
-            profile_id=args.profile_id,
-            key_source=args.key_source,
-            exportable=args.exportable,
-            generate_keyfile=args.generate_keyfile,
-        )
+        try:
+            vault.create_profile(
+                profile_id=args.profile_id,
+                key_source=args.key_source,
+                exportable=args.exportable,
+                generate_keyfile=args.generate_keyfile,
+            )
+        except FileExistsError as e:
+            print(f"Create profile failed: a keyfile already exists and will not be overwritten ({e.filename})")
+            print("Re-run without --generate-keyfile to reuse it, or move it away first.")
+            sys.exit(1)
+        except ValueError as e:
+            print(f"Create profile failed: {e}")
+            sys.exit(1)
 
     elif args.command == "list-profiles":
         print(json.dumps(vault.list_profiles(), indent=2))
@@ -263,7 +273,11 @@ def main():
             obj_kwargs["memory_id"] = args.id
 
         obj = MemoryObject(**obj_kwargs)
-        vault.store_memory(obj)
+        try:
+            vault.store_memory(obj)
+        except (MemoryVaultError, ValueError, OSError) as e:
+            print(f"Store failed: {e}")
+            sys.exit(1)
 
     elif args.command == "recall":
         try:

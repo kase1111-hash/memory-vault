@@ -10,7 +10,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ### Prerequisites
 
-- Python 3.8 or higher (3.10+ recommended)
+- Python 3.10 or higher
 - Git
 - Virtual environment tool (venv, virtualenv, or conda)
 

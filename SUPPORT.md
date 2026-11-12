@@ -57,7 +57,7 @@ Memory Vault is an open source project maintained by volunteers. Response times 
 
 ### Common Issues
 
-1. **Installation problems**: Ensure Python 3.8+ is installed and pip is up to date
+1. **Installation problems**: Ensure Python 3.10+ is installed and pip is up to date
 2. **TPM errors**: TPM support is Linux-only and requires hardware
 3. **Token authentication**: See Physical Token Setup in README.md
 4. **Database errors**: Check file permissions on the vault database

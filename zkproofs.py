@@ -14,7 +14,6 @@ import hashlib
 import json
 import base64
 from datetime import datetime, timezone
-from typing import Tuple
 
 from nacl.signing import SigningKey, VerifyKey
 
@@ -96,7 +95,7 @@ def generate_existence_commitment(memory_id: str) -> dict:
     return commitment
 
 
-def verify_existence_commitment(commitment: dict, memory_id: str, created_at: str) -> Tuple[bool, str]:
+def verify_existence_commitment(commitment: dict, memory_id: str, created_at: str) -> tuple[bool, str]:
     """
     Verify an existence commitment against known memory details.
 
@@ -317,7 +316,7 @@ def generate_signed_attestation(memory_id: str, signing_key: SigningKey, stateme
     return attestation
 
 
-def verify_signed_attestation(attestation: dict, verify_key: VerifyKey) -> Tuple[bool, str]:
+def verify_signed_attestation(attestation: dict, verify_key: VerifyKey) -> tuple[bool, str]:
     """
     Verify a signed attestation.
 

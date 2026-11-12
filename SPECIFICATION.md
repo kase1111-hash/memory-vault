@@ -357,7 +357,7 @@ TPM sealing/unsealing code exists but hasn't been validated on real hardware.
 
 ### Required
 - `pynacl>=1.5.0` — Core cryptography (XSalsa20-Poly1305, Argon2id, Ed25519)
-- Python 3.7+ (sqlite3, json, hashlib, uuid, datetime, base64 standard library)
+- Python 3.10+ (sqlite3, json, hashlib, uuid, datetime, base64 standard library)
 
 ### Optional
 - `tpm2-pytss>=2.1.0` — TPM 2.0 support (Linux only)

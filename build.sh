@@ -20,17 +20,17 @@ err() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 # Check for Python
 if ! command -v python3 &> /dev/null; then
-    err "Python 3 not found. Please install Python 3.7+ from https://python.org"
+    err "Python 3 not found. Please install Python 3.10+ from https://python.org"
 fi
 
 PYVER=$(python3 --version 2>&1 | awk '{print $2}')
 ok "Found Python $PYVER"
 
-# Check Python version is 3.7+
+# Check Python version is 3.10+
 PYMAJOR=$(echo "$PYVER" | cut -d. -f1)
 PYMINOR=$(echo "$PYVER" | cut -d. -f2)
-if [ "$PYMAJOR" -lt 3 ] || ([ "$PYMAJOR" -eq 3 ] && [ "$PYMINOR" -lt 7 ]); then
-    err "Python 3.7+ required, found $PYVER"
+if [ "$PYMAJOR" -lt 3 ] || ([ "$PYMAJOR" -eq 3 ] && [ "$PYMINOR" -lt 10 ]); then
+    err "Python 3.10+ required, found $PYVER"
 fi
 
 # Create virtual environment if it doesn't exist

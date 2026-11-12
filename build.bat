@@ -9,7 +9,7 @@ echo.
 :: Check for Python
 where python >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Python not found. Please install Python 3.7+ from https://python.org
+    echo [ERROR] Python not found. Please install Python 3.10+ from https://python.org
     pause
     exit /b 1
 )

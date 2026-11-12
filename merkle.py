@@ -1,10 +1,9 @@
 # memory_vault/merkle.py
 
 import hashlib
-from typing import List, Tuple, Optional, Union
 
 
-def hash_leaf(data: Union[bytes, str]) -> str:
+def hash_leaf(data: bytes | str) -> str:
     """Double SHA256 for Merkle leaf (Bitcoin-style)."""
     if isinstance(data, str):
         data = data.encode()
@@ -18,7 +17,7 @@ def hash_node(left: str, right: str) -> str:
     return hashlib.sha256(hashlib.sha256(data.encode()).digest()).hexdigest()
 
 
-def build_tree(leaves: List[str]) -> Tuple[Optional[str], dict]:
+def build_tree(leaves: list[str]) -> tuple[str | None, dict]:
     """
     Build Merkle tree and return (root, proof_map).
     proof_map[i] = list of sibling hashes needed to verify leaf i against the root.
@@ -73,7 +72,7 @@ def build_tree(leaves: List[str]) -> Tuple[Optional[str], dict]:
     return current_level[0], proofs
 
 
-def verify_proof(leaf_hash: str, root_hash: str, proof: List[str]) -> bool:
+def verify_proof(leaf_hash: str, root_hash: str, proof: list[str]) -> bool:
     """Verify a leaf belongs to the tree using sibling proofs."""
     current = leaf_hash
     for sibling in proof:
@@ -83,7 +82,7 @@ def verify_proof(leaf_hash: str, root_hash: str, proof: List[str]) -> bool:
 
 
 # Helper to rebuild entire tree from DB (for integrity check)
-def rebuild_merkle_tree(conn) -> Tuple[str, dict]:
+def rebuild_merkle_tree(conn) -> tuple[str, dict]:
     c = conn.cursor()
     c.execute("SELECT leaf_hash FROM merkle_leaves ORDER BY leaf_id")
     leaves = [row[0] for row in c.fetchall()]
