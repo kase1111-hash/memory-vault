@@ -43,6 +43,12 @@ except ImportError:
     TPM_AVAILABLE = False
 
 
+def _restrict_permissions(fileobj, mode: int) -> None:
+    """Set file permissions on an open file; a no-op where fchmod is unavailable (Windows)."""
+    if hasattr(os, "fchmod"):
+        os.fchmod(fileobj.fileno(), mode)
+
+
 # === Core Encryption Functions ===
 
 
@@ -63,7 +69,14 @@ def load_key_from_file(keyfile_path: str) -> bytes:
     if not os.path.exists(keyfile_path):
         raise FileNotFoundError(f"Keyfile not found: {keyfile_path}")
     with open(keyfile_path, "rb") as f:
-        key = f.read().strip()
+        key = f.read()
+    # Keys are raw random bytes, so they must never be whitespace-stripped: a key
+    # that happens to start or end with a whitespace byte would be truncated.
+    # Only tolerate a single trailing newline added by an editor or `echo`.
+    for newline in (b"\r\n", b"\n"):
+        if len(key) == KEY_SIZE + len(newline) and key.endswith(newline):
+            key = key[: -len(newline)]
+            break
     if len(key) != KEY_SIZE:
         raise ValueError(f"Keyfile must contain exactly {KEY_SIZE} bytes")
     return key
@@ -77,8 +90,9 @@ def generate_keyfile(profile_id: str, directory: str = "~/.memory_vault/keys") -
     os.makedirs(directory, exist_ok=True)
     keyfile_path = os.path.join(directory, f"{profile_id}.key")
     key = random(KEY_SIZE)
-    with open(keyfile_path, "wb") as f:
-        os.fchmod(f.fileno(), 0o600)
+    # "xb": never overwrite an existing key - memories encrypted with it would be lost.
+    with open(keyfile_path, "xb") as f:
+        _restrict_permissions(f, 0o600)
         f.write(key)
     return keyfile_path
 
@@ -339,10 +353,10 @@ def load_or_create_signing_key(tpm_preferred: bool = True) -> SigningKey:
     # Save to secure file
     os.makedirs(os.path.dirname(SIGNING_KEY_PATH), mode=0o700, exist_ok=True)
     with open(SIGNING_KEY_PATH, "wb") as f:
-        os.fchmod(f.fileno(), 0o600)
+        _restrict_permissions(f, 0o600)
         f.write(sk.encode())
     with open(SIGNING_KEY_PATH + ".pub", "wb") as f:
-        os.fchmod(f.fileno(), 0o644)
+        _restrict_permissions(f, 0o644)
         f.write(sk.verify_key.encode())
     print("Signing key saved to encrypted file")
     return sk
@@ -411,10 +425,10 @@ def rotate_signing_key() -> tuple[SigningKey, int]:
     new_sk = SigningKey.generate()
     os.makedirs(os.path.dirname(SIGNING_KEY_PATH), mode=0o700, exist_ok=True)
     with open(SIGNING_KEY_PATH, "wb") as f:
-        os.fchmod(f.fileno(), 0o600)
+        _restrict_permissions(f, 0o600)
         f.write(new_sk.encode())
     with open(pub_path, "wb") as f:
-        os.fchmod(f.fileno(), 0o644)
+        _restrict_permissions(f, 0o644)
         f.write(new_sk.verify_key.encode())
 
     logger.info("Signing key rotated to epoch %d", new_epoch)

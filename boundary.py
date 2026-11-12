@@ -10,7 +10,7 @@ import json
 import os
 import logging
 import threading
-from typing import Optional, Dict, Any, Tuple
+from typing import Any
 from dataclasses import dataclass
 from enum import Enum
 
@@ -53,9 +53,9 @@ class BoundaryStatus:
     """Current boundary daemon status."""
 
     connected: bool
-    operational_mode: Optional[OperationalMode]
-    restrictions: Dict[str, Any]
-    last_check: Optional[float] = None
+    operational_mode: OperationalMode | None
+    restrictions: dict[str, Any]
+    last_check: float | None = None
 
 
 class BoundaryClient:
@@ -82,9 +82,9 @@ class BoundaryClient:
         self.socket_path = socket_path
         self.timeout = timeout
         self._lock = threading.Lock()
-        self._status_cache: Optional[BoundaryStatus] = None
+        self._status_cache: BoundaryStatus | None = None
 
-    def _send_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+    def _send_request(self, request: dict[str, Any]) -> dict[str, Any]:
         """Send request to boundary-daemon and get response.
 
         Args:
@@ -130,14 +130,14 @@ class BoundaryClient:
             ) from e
         except ConnectionRefusedError as e:
             raise BoundaryConnectionError("Boundary daemon not running", socket_path=self.socket_path) from e
-        except socket.timeout as e:
+        except TimeoutError as e:
             raise BoundaryTimeoutError("Boundary daemon did not respond in time") from e
         except OSError as e:
             raise BoundaryConnectionError(f"Socket error: {e}", socket_path=self.socket_path) from e
 
     def check_recall(
         self, memory_class: int, memory_id: str = None, requester: str = None, justification: str = None
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Query boundary-daemon for recall permission.
 
         Args:
@@ -242,7 +242,7 @@ class BoundaryClient:
 
         return self._status_cache
 
-    def register_vault(self, vault_id: str, capabilities: Dict[str, Any] = None) -> bool:
+    def register_vault(self, vault_id: str, capabilities: dict[str, Any] = None) -> bool:
         """Register this vault instance with boundary-daemon.
 
         Allows boundary-daemon to track and protect vault connections.
@@ -277,7 +277,7 @@ class BoundaryClient:
 
     def request_connection_protection(
         self, connection_type: str, target: str, duration_seconds: int = 300
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """Request connection protection from boundary-daemon.
 
         Asks boundary-daemon to monitor and protect a specific connection.
@@ -339,7 +339,7 @@ class BoundaryClient:
 
 
 # Global client instance
-_global_client: Optional[BoundaryClient] = None
+_global_client: BoundaryClient | None = None
 _client_lock = threading.Lock()
 
 
@@ -355,7 +355,7 @@ def get_client() -> BoundaryClient:
     return _global_client
 
 
-def check_recall(memory_class: int) -> Tuple[bool, str]:
+def check_recall(memory_class: int) -> tuple[bool, str]:
     """
     Query the boundary-daemon via Unix socket for recall permission.
     Returns (permitted: bool, reason: str)

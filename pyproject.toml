@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "memory-vault"
-version = "0.2.1-alpha"
+version = "0.3.0-alpha"
 description = "Secure, owner-sovereign, offline-first storage for high-value cognitive artifacts"
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
@@ -17,6 +17,10 @@ keywords = [
     "memory",
     "vault",
     "ai-agents",
+    "mcp",
+    "model-context-protocol",
+    "llm",
+    "agent-memory",
     "privacy",
     "cryptography",
     "offline-first"
@@ -27,15 +31,14 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security :: Cryptography",
     "Topic :: System :: Archiving",
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "pynacl>=1.5.0",
 ]
@@ -48,10 +51,14 @@ tokens = [
     "fido2>=1.1.0",
     "pyotp>=2.8.0",
 ]
+mcp = [
+    "mcp>=1.23.0",
+]
 all = [
     "tpm2-pytss>=2.1.0; platform_system=='Linux'",
     "fido2>=1.1.0",
     "pyotp>=2.8.0",
+    "mcp>=1.23.0",
 ]
 dev = [
     "pytest>=7.0.0",
@@ -59,10 +66,12 @@ dev = [
     "ruff>=0.1.0",
     "pip-audit>=2.6.0",
     "pre-commit>=3.5.0",
+    "mcp>=1.23.0",
 ]
 
 [project.scripts]
 memory-vault = "memory_vault.cli:main"
+memory-vault-mcp = "memory_vault.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/kase1111-hash/memory-vault"
@@ -97,7 +106,7 @@ exclude_lines = [
 ]
 
 [tool.ruff]
-target-version = "py38"
+target-version = "py310"
 line-length = 120
 exclude = [
     ".git",

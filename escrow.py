@@ -24,7 +24,6 @@ import uuid
 import secrets
 import base64
 from datetime import datetime, timezone
-from typing import List, Tuple
 
 from nacl.public import SealedBox, PublicKey
 
@@ -77,7 +76,7 @@ def _gf256_div(a: int, b: int) -> int:
     return _GF256_EXP[(_GF256_LOG[a] - _GF256_LOG[b]) % 255]
 
 
-def _evaluate_polynomial(coefficients: List[int], x: int) -> int:
+def _evaluate_polynomial(coefficients: list[int], x: int) -> int:
     """Evaluate polynomial at x in GF(256)."""
     result = 0
     for coef in reversed(coefficients):
@@ -85,7 +84,7 @@ def _evaluate_polynomial(coefficients: List[int], x: int) -> int:
     return result
 
 
-def _lagrange_interpolate(points: List[Tuple[int, int]], x: int = 0) -> int:
+def _lagrange_interpolate(points: list[tuple[int, int]], x: int = 0) -> int:
     """
     Lagrange interpolation in GF(256) to find f(x).
     points = [(x1, y1), (x2, y2), ...]
@@ -101,7 +100,7 @@ def _lagrange_interpolate(points: List[Tuple[int, int]], x: int = 0) -> int:
     return result
 
 
-def split_secret(secret: bytes, threshold: int, total_shards: int) -> List[Tuple[int, bytes]]:
+def split_secret(secret: bytes, threshold: int, total_shards: int) -> list[tuple[int, bytes]]:
     """
     Split a secret into shards using Shamir's Secret Sharing.
 
@@ -136,7 +135,7 @@ def split_secret(secret: bytes, threshold: int, total_shards: int) -> List[Tuple
     return [(idx, bytes(data)) for idx, data in shards]
 
 
-def reconstruct_secret(shards: List[Tuple[int, bytes]]) -> bytes:
+def reconstruct_secret(shards: list[tuple[int, bytes]]) -> bytes:
     """
     Reconstruct a secret from shards using Lagrange interpolation.
 
@@ -167,7 +166,7 @@ def reconstruct_secret(shards: List[Tuple[int, bytes]]) -> bytes:
 def create_escrow(
     profile_id: str,
     threshold: int,
-    recipients: List[Tuple[str, str]],  # (name, public_key_b64)
+    recipients: list[tuple[str, str]],  # (name, public_key_b64)
     vault_passphrase: str = None,
 ) -> str:
     """
@@ -254,7 +253,7 @@ def create_escrow(
     timestamp = datetime.now(timezone.utc).isoformat() + "Z"
 
     # Encrypt each shard for its recipient
-    for _, ((shard_idx, shard_data), (name, pubkey_b64)) in enumerate(zip(shards, recipients)):
+    for _, ((shard_idx, shard_data), (name, pubkey_b64)) in enumerate(zip(shards, recipients, strict=False)):
         try:
             pubkey_bytes = base64.b64decode(pubkey_b64)
             pubkey = PublicKey(pubkey_bytes)
@@ -330,7 +329,7 @@ def get_escrow_info(escrow_id: str) -> dict:
     }
 
 
-def list_escrows(profile_id: str = None) -> List[dict]:
+def list_escrows(profile_id: str = None) -> list[dict]:
     """
     List all escrows, optionally filtered by profile.
 
@@ -413,7 +412,7 @@ def export_shard_package(escrow_id: str, recipient_name: str) -> dict:
     }
 
 
-def recover_from_escrow(shards: List[Tuple[int, bytes]]) -> bytes:
+def recover_from_escrow(shards: list[tuple[int, bytes]]) -> bytes:
     """
     Recover a key from decrypted shards.
 

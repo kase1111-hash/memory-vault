@@ -4,8 +4,8 @@
 
 Memory Vault is a sovereign, offline-capable AI memory storage system with XSalsa20-Poly1305 encryption and Argon2id key derivation. It provides encrypted knowledge storage for AI agents with owner-controlled access, classification-bound permissions, and tamper-evident auditing.
 
-**Status:** v0.1.0-alpha (Feature Complete)
-**Python:** 3.8+ recommended (3.7 minimum)
+**Status:** v0.3.0-alpha
+**Python:** 3.10+
 **License:** GPL-3.0-or-later
 
 ## Quick Commands
@@ -49,7 +49,8 @@ escrow.py         - Shamir's Secret Sharing key escrow (experimental)
 physical_token.py - FIDO2, HMAC, TOTP authentication (experimental)
 deadman.py        - Dead-man switch & heir management (experimental)
 zkproofs.py       - Zero-knowledge existence proofs (experimental)
-examples/         - Integration examples (LangChain adapter)
+mcp_server.py     - MCP server + VaultToolkit (agent-facing tools; optional `mcp` extra)
+examples/         - Integration examples (agent memory)
 tests/            - pytest test suite
 ```
 
@@ -93,7 +94,7 @@ This codebase follows strict security principles that must be maintained:
 
 ### Profile ID Validation
 ```python
-PROFILE_ID_PATTERN = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$')
+PROFILE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
 ```
 
 ### Error Handling
@@ -113,6 +114,7 @@ Use the schema and helpers in `db.py`. Tables include:
 - `pynacl >= 1.5.0` - Cryptography (libsodium)
 
 **Optional:**
+- `mcp >= 1.23.0` - Model Context Protocol server (`memory-vault-mcp`)
 - `tpm2-pytss >= 2.1.0` - TPM hardware support
 - `fido2 >= 1.1.0` - FIDO2/U2F tokens
 - `pyotp >= 2.8.0` - TOTP/HOTP
@@ -122,6 +124,10 @@ Use the schema and helpers in `db.py`. Tables include:
 - `ruff >= 0.1.0`, `pip-audit >= 2.6.0`
 
 ## Important Notes
+
+- Library code must not write to stdout or read stdin when `MemoryVault(interactive=False)`:
+  the MCP server speaks JSON-RPC over stdio. Use `logging`, not `print`, in new library code.
+- Passphrase-derived keys are cached per `(profile, salt)`. Never reuse a key for a different salt.
 
 - Never log or expose encryption keys or plaintext content
 - Boundary daemon socket: `~/.agent-os/api/boundary.sock`

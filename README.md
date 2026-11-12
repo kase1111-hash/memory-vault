@@ -5,10 +5,10 @@
 Memory Vault is an **AI memory vault** and **private AI knowledge base** designed for AI agent ecosystems. It provides **owner-controlled AI storage** with classification-bound access control, tamper-evident auditing, hardware-bound secrets, and human-in-the-loop controls. Built for **digital sovereignty**, Memory Vault ensures your AI's memories remain private, self-hosted, and under your complete control.
 
 [![Tests](https://github.com/kase1111-hash/memory-vault/actions/workflows/test.yml/badge.svg)](https://github.com/kase1111-hash/memory-vault/actions/workflows/test.yml)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-**Version:** 0.2.1-alpha | **Status:** Alpha (Security Hardened, Seeking Feedback)
+**Version:** 0.3.0-alpha | **Status:** Alpha (Security Hardened, Seeking Feedback)
 
 > ⚠️ **Alpha Release**: This is the first public release. Core functionality is stable and tested,
 > but some features (TPM hardware sealing, FIDO2 credential lifecycle) require additional validation.
@@ -31,7 +31,9 @@ This is an alpha release. The following limitations apply:
 - **TPM 2.0 sealing** is implemented but has not been validated on physical TPM hardware.
 - **Single-owner model** — the vault assumes a single owner. Multi-user or multi-tenant access is not supported.
 - **No async support** — boundary daemon communication uses synchronous I/O.
-- **Argon2id SENSITIVE parameters** use 1 GB memory per key derivation, which makes bulk operations slow and may not be suitable for resource-constrained devices.
+- **Argon2id SENSITIVE parameters** use 1 GB memory and a few seconds per key derivation. A passphrase profile derives its key once per session (the key is then cached for five minutes), but that first derivation may not suit resource-constrained devices. Keyfile profiles have no derivation cost.
+- **Search covers metadata only** — memory content is encrypted, so only the unencrypted `value_metadata` (summary, tags) is searchable. There is no semantic/embedding search.
+- **Level 3+ recalls need the boundary daemon** — without the Agent-OS boundary daemon running, Level 3–5 memories can be stored but not recalled (fail-closed).
 
 ## Features
 
@@ -60,6 +62,11 @@ This is an alpha release. The following limitations apply:
 - **Key Escrow**: Shamir's Secret Sharing for quorum recovery (experimental)
 - **Memory Tombstones**: Mark inaccessible but retain for audit
 
+### AI Integration
+- **MCP Server**: `memory-vault-mcp` gives Claude Code, Claude Desktop, Cursor and any other Model Context Protocol client encrypted long-term memory (remember / search / recall / forget)
+- **Human-in-the-loop over MCP**: Level 3–4 recalls ask the user for approval through the client (MCP elicitation)
+- **Non-interactive mode**: `MemoryVault(interactive=False)` never touches the terminal, for agents and servers
+
 ### Other
 - **IntentLog Adapter**: Bidirectional linking with intent tracking systems
 - **Full-Text Search**: FTS5 on metadata and recall justifications
@@ -77,7 +84,7 @@ pip install .
 # Or install with development dependencies
 pip install -e ".[dev]"
 
-# Optional: Install with all extras (TPM, tokens)
+# Optional: Install with all extras (TPM, tokens, MCP server)
 pip install -e ".[all]"
 ```
 
@@ -89,6 +96,9 @@ pip install ".[tpm]"
 
 # Physical token support (FIDO2, TOTP)
 pip install ".[tokens]"
+
+# MCP server for AI assistants
+pip install ".[mcp]"
 ```
 
 ## Quick Start
@@ -106,7 +116,95 @@ vault.store_memory(obj, passphrase="my-secret")
 content = vault.recall_memory(obj.memory_id, justification="personalizing UI", passphrase="my-secret")
 ```
 
-See [`examples/langchain_memory.py`](examples/langchain_memory.py) for a complete integration example including a LangChain-compatible adapter pattern.
+The first use of a passphrase in a session takes a few seconds (Argon2id); after that the
+derived key is cached, so further stores and recalls are instant.
+
+Find memories without decrypting them by searching their metadata:
+
+```python
+obj = MemoryObject(content_plaintext=b"Deploys go out on Tuesdays", value_metadata={"summary": "Deployment schedule"})
+vault.store_memory(obj, passphrase="my-secret")
+
+vault.search_memories(
+    "when do we deploy?"
+)  # -> [{"memory_id": ..., "metadata": {"summary": "Deployment schedule"}, ...}]
+```
+
+See [`examples/agent_memory.py`](examples/agent_memory.py) for a runnable example, including the agent-facing toolkit.
+
+## Use with AI Assistants (MCP)
+
+Memory Vault ships a [Model Context Protocol](https://modelcontextprotocol.io) server, so an AI
+assistant can keep long-term memory that is encrypted at rest, never leaves your machine, and
+records every recall in a signed audit log.
+
+```bash
+pip install ".[mcp]"
+
+# Check the configuration (creates a key on first run)
+memory-vault-mcp --check
+```
+
+Register it with your client. For Claude Code:
+
+```bash
+claude mcp add memory-vault -- memory-vault-mcp
+```
+
+For Claude Desktop, Cursor and other clients that use a JSON config:
+
+```json
+{
+  "mcpServers": {
+    "memory-vault": { "command": "memory-vault-mcp" }
+  }
+}
+```
+
+The assistant then has these tools:
+
+| Tool | What it does |
+|------|--------------|
+| `remember` | Encrypt and store a memory with a searchable summary, tags and classification |
+| `search_memories` | Find memories by topic (matches summaries and tags) |
+| `list_memories` | List the most recent memories |
+| `recall` | Decrypt one memory; requires a justification, which goes in the audit log |
+| `forget` | Tombstone a memory (Level 0–2 only) |
+| `vault_status` | Memory counts per level and lockdown state |
+
+What the assistant can and cannot do:
+
+- **Level 0–2** memories are recalled automatically.
+- **Level 3–4** recalls ask *you* for approval through the client (MCP elicitation) and also
+  require the boundary daemon. If your client cannot ask, or you decline, the recall is refused.
+- **Level 5** memories can never be recalled through the server — only by you, from the CLI,
+  with a physical token.
+- The assistant cannot tombstone Level 3+ memories, unlock a lockdown, or rotate keys.
+- **Summaries and tags are stored unencrypted** (they are the search index). The server tells
+  the model not to put secrets in them, but treat them as visible to anyone who can read the
+  database file.
+
+Configuration is by environment variable:
+
+| Variable | Purpose |
+|----------|---------|
+| `MEMORY_VAULT_DB` | Database path (default `~/.memory_vault/vault.db`) |
+| `MEMORY_VAULT_PROFILE` | Encryption profile to store new memories under |
+| `MEMORY_VAULT_PASSPHRASE_FILE` | File containing the passphrase for a passphrase profile |
+| `MEMORY_VAULT_PASSPHRASE` | The passphrase itself (prefer the file: client configs are often world-readable) |
+
+With no passphrase configured, the server uses a keyfile profile named `mcp-agent` whose key is
+generated at `~/.memory_vault/keys/mcp-agent.key` (mode 0600). That protects the database and
+its backups if they are copied without the key, but not against someone with access to your
+account — set a passphrase for that. **Back up the key file: without it the memories are
+unrecoverable.**
+
+Memories the assistant stores are ordinary vault memories: you can inspect, recall, back up and
+tombstone them with the `memory-vault` CLI, and `memory-vault search-justifications` shows what
+the assistant recalled and why.
+
+To use the same tools from your own agent loop without MCP, use `VaultToolkit` from
+`memory_vault.mcp_server` (see the example above).
 
 ### CLI Usage
 
@@ -335,6 +433,7 @@ merkle.py           - Merkle tree construction & verification
 models.py           - Dataclasses (MemoryObject, etc.)
 errors.py           - Exception hierarchy (19 exception types)
 cli.py              - Command-line interface
+mcp_server.py       - MCP server and agent-facing toolkit (optional `mcp` extra)
 boundary.py         - Boundary daemon client & connection protection
 physical_token.py   - FIDO2, HMAC, TOTP token authentication (experimental)
 deadman.py          - Dead-man switch & heir management (experimental)
@@ -370,12 +469,13 @@ See [SPECIFICATION.md](SPECIFICATION.md) for detailed security model and threat 
 
 ### Required
 - `pynacl>=1.5.0` - Core cryptography (XSalsa20-Poly1305, Argon2id, Ed25519)
-- Python 3.8+ standard library (sqlite3, json, hashlib, uuid, datetime, base64)
+- Python 3.10+ standard library (sqlite3, json, hashlib, uuid, datetime, base64)
 
 ### Optional
 - `tpm2-pytss>=2.1.0` - TPM 2.0 support (Linux only)
 - `fido2>=1.1.0` - FIDO2/U2F hardware tokens
 - `pyotp>=2.8.0` - TOTP/HOTP software tokens
+- `mcp>=1.23.0` - Model Context Protocol server (tested with SDK 1.23, 1.30 and 2.3)
 
 ## Related Documentation
 

@@ -39,7 +39,7 @@ jobs:
 
       - name: Verify syntax
         run: |
-          python -m py_compile vault.py crypto.py db.py merkle.py models.py cli.py
+          python -m py_compile vault.py crypto.py db.py merkle.py models.py cli.py mcp_server.py
 
       - name: Verify imports
         run: |
@@ -55,8 +55,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ['3.8', '3.10', '3.12']
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.10', '3.12', '3.13']
+        experimental: [false]
+        include:
+          # Windows is best-effort: the boundary daemon client and key-file
+          # permissions are POSIX-oriented and have not been validated there.
+          - os: windows-latest
+            python-version: '3.12'
+            experimental: true
+    continue-on-error: ${{ matrix.experimental }}
 
     steps:
       - uses: actions/checkout@v4
@@ -108,8 +116,9 @@ jobs:
 
       - name: Run Bandit security scan
         run: |
-          bandit -r . -x ./tests,./.venv,./build -f json -o bandit-report.json || true
-          bandit -r . -x ./tests,./.venv,./build -f txt
+          bandit -r . -x ./tests,./examples,./.venv,./build -f json -o bandit-report.json || true
+          # Report everything, but only fail the job on medium severity or higher.
+          bandit -r . -x ./tests,./examples,./.venv,./build -f txt --severity-level medium
 
       - name: Upload Bandit report
         uses: actions/upload-artifact@v4

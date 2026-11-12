@@ -5,7 +5,64 @@ All notable changes to Memory Vault are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0-alpha] - 2026-11-12
+
+**AI integration and key-handling correctness.**
+
+### Added
+
+- **MCP server** (`memory-vault-mcp`, `mcp_server.py`, optional `mcp` extra): exposes the
+  vault to Model Context Protocol clients (Claude Code, Claude Desktop, Cursor, agent SDKs)
+  as `remember`, `search_memories`, `list_memories`, `recall`, `forget` and `vault_status`
+  tools. Level 3-4 recalls ask the human for approval through the client (MCP elicitation);
+  Level 5 is never recallable through the server. Tested end-to-end over stdio against MCP
+  SDK 1.23, 1.30 and 2.3.
+- **`VaultToolkit`**: the same operations as plain functions, for tool-calling loops that do
+  not use MCP.
+- **Non-interactive mode**: `MemoryVault(interactive=False)` never prompts on the terminal;
+  missing passphrases raise `ProfileKeyMissingError` and human gates fail closed.
+- **Approval callback**: `MemoryVault(approver=...)` decides Level 3+ recalls in place of the
+  terminal prompt.
+- **Discovery API**: `search_memories()` (free-text search over metadata, safe for
+  model-written queries), `list_memories()` and `get_memory_info()`; none decrypt content.
+
+### Fixed
+
+- **Data loss in the key cache**: a passphrase-derived key was cached per profile and reused
+  for memories with a different salt. Storing a second memory without re-supplying the
+  passphrase saved it under a key that did not match its salt, making it undecryptable with
+  the correct passphrase; recalling without a passphrase failed for all but the most recent
+  memory. Keys are now cached per `(profile, salt)` and only after they are proven correct.
+  *A memory written by the affected path in an earlier version was encrypted with the key
+  for another memory's salt, so it can usually be recovered by trying the passphrase with
+  the salts of the other memories in the same profile (see `RECOVERY.md`).*
+- **Corrupted keyfiles**: `load_key_from_file` whitespace-stripped the raw key, so roughly 5%
+  of generated keys (those beginning or ending with a whitespace byte) were rejected as the
+  wrong length.
+- **Keyfile overwrite**: `generate_keyfile` silently replaced an existing key, orphaning
+  every memory encrypted with it. It now refuses.
+- **Wrong passphrase accepted on store**: a mistyped passphrase silently encrypted the new
+  memory under an unknown key. Stores are now checked against the profile's existing memories.
+- **Python version**: the code used syntax that fails to import on Python 3.8 and 3.9 despite
+  advertising 3.8+. The supported floor is now 3.10, stated consistently.
+- **CI**: the lint job failed on unformatted files and the security-scan job failed on
+  low-severity example findings, so the test matrix never ran. Both are fixed; the matrix is
+  now Python 3.10/3.12/3.13 on Linux and macOS, with Windows as best-effort.
+- `examples/langchain_memory.py` crashed on its second run and targeted a deprecated
+  LangChain interface; replaced by `examples/agent_memory.py`.
+- CLI `store` and `create-profile` report failures without a traceback.
+
+### Changed
+
+- **One Argon2id salt per profile** instead of per memory, so the 1 GB key derivation runs
+  once per session rather than on every store and recall (recalls after the first dropped
+  from ~2.5 s to milliseconds). Each memory row still records its salt, so `RECOVERY.md`
+  procedures and existing vaults (per-memory salts) keep working unchanged.
+- Key rotation re-encrypts a profile under a single new salt and derives each old key once.
+- Database initialisation logs at DEBUG instead of printing to stdout.
+- Requires Python 3.10+.
+
+### Also included (previously unreleased)
 
 **Functionality verification pass.** Exercised every README-advertised workflow
 end-to-end and fixed everything that did not work as documented.
@@ -161,7 +218,64 @@ with error handling and boundary daemon integration.
 - TPM sealing untested on real hardware
 - FIDO2 full credential lifecycle incomplete
 
-## [Unreleased]
+## [0.3.0-alpha] - 2026-11-12
+
+**AI integration and key-handling correctness.**
+
+### Added
+
+- **MCP server** (`memory-vault-mcp`, `mcp_server.py`, optional `mcp` extra): exposes the
+  vault to Model Context Protocol clients (Claude Code, Claude Desktop, Cursor, agent SDKs)
+  as `remember`, `search_memories`, `list_memories`, `recall`, `forget` and `vault_status`
+  tools. Level 3-4 recalls ask the human for approval through the client (MCP elicitation);
+  Level 5 is never recallable through the server. Tested end-to-end over stdio against MCP
+  SDK 1.23, 1.30 and 2.3.
+- **`VaultToolkit`**: the same operations as plain functions, for tool-calling loops that do
+  not use MCP.
+- **Non-interactive mode**: `MemoryVault(interactive=False)` never prompts on the terminal;
+  missing passphrases raise `ProfileKeyMissingError` and human gates fail closed.
+- **Approval callback**: `MemoryVault(approver=...)` decides Level 3+ recalls in place of the
+  terminal prompt.
+- **Discovery API**: `search_memories()` (free-text search over metadata, safe for
+  model-written queries), `list_memories()` and `get_memory_info()`; none decrypt content.
+
+### Fixed
+
+- **Data loss in the key cache**: a passphrase-derived key was cached per profile and reused
+  for memories with a different salt. Storing a second memory without re-supplying the
+  passphrase saved it under a key that did not match its salt, making it undecryptable with
+  the correct passphrase; recalling without a passphrase failed for all but the most recent
+  memory. Keys are now cached per `(profile, salt)` and only after they are proven correct.
+  *A memory written by the affected path in an earlier version was encrypted with the key
+  for another memory's salt, so it can usually be recovered by trying the passphrase with
+  the salts of the other memories in the same profile (see `RECOVERY.md`).*
+- **Corrupted keyfiles**: `load_key_from_file` whitespace-stripped the raw key, so roughly 5%
+  of generated keys (those beginning or ending with a whitespace byte) were rejected as the
+  wrong length.
+- **Keyfile overwrite**: `generate_keyfile` silently replaced an existing key, orphaning
+  every memory encrypted with it. It now refuses.
+- **Wrong passphrase accepted on store**: a mistyped passphrase silently encrypted the new
+  memory under an unknown key. Stores are now checked against the profile's existing memories.
+- **Python version**: the code used syntax that fails to import on Python 3.8 and 3.9 despite
+  advertising 3.8+. The supported floor is now 3.10, stated consistently.
+- **CI**: the lint job failed on unformatted files and the security-scan job failed on
+  low-severity example findings, so the test matrix never ran. Both are fixed; the matrix is
+  now Python 3.10/3.12/3.13 on Linux and macOS, with Windows as best-effort.
+- `examples/langchain_memory.py` crashed on its second run and targeted a deprecated
+  LangChain interface; replaced by `examples/agent_memory.py`.
+- CLI `store` and `create-profile` report failures without a traceback.
+
+### Changed
+
+- **One Argon2id salt per profile** instead of per memory, so the 1 GB key derivation runs
+  once per session rather than on every store and recall (recalls after the first dropped
+  from ~2.5 s to milliseconds). Each memory row still records its salt, so `RECOVERY.md`
+  procedures and existing vaults (per-memory salts) keep working unchanged.
+- Key rotation re-encrypts a profile under a single new salt and derives each old key once.
+- Database initialisation logs at DEBUG instead of printing to stdout.
+- Requires Python 3.10+.
+
+### Also included (previously unreleased)
 
 Previous development versions (1.0.0, 1.1.0) have been consolidated into this
 alpha release. See below for historical context.

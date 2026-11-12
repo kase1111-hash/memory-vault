@@ -1,7 +1,11 @@
 # memory_vault/db.py
 
+import logging
+import re
 import sqlite3
 import os
+
+logger = logging.getLogger(__name__)
 
 # Default database path
 DB_PATH = os.path.expanduser("~/.memory_vault/vault.db")
@@ -130,39 +134,46 @@ def init_db(db_path: str = None):
     columns = [col[1] for col in c.fetchall()]
     if "sealed_blob" not in columns:
         c.execute("ALTER TABLE memories ADD COLUMN sealed_blob BLOB")
-        print("Added 'sealed_blob' column")
+        logger.debug("Added 'sealed_blob' column")
     if "audit_proof" not in columns:
         c.execute("ALTER TABLE memories ADD COLUMN audit_proof TEXT")
-        print("Added 'audit_proof' column")
+        logger.debug("Added 'audit_proof' column")
 
     # --- Profile Key Rotation Columns ---
     c.execute("PRAGMA table_info(encryption_profiles)")
     profile_columns = [col[1] for col in c.fetchall()]
     if "last_rotation" not in profile_columns:
         c.execute("ALTER TABLE encryption_profiles ADD COLUMN last_rotation TEXT")
-        print("Added 'last_rotation' column to encryption_profiles")
+        logger.debug("Added 'last_rotation' column to encryption_profiles")
     if "rotation_count" not in profile_columns:
         c.execute("ALTER TABLE encryption_profiles ADD COLUMN rotation_count INTEGER DEFAULT 0")
-        print("Added 'rotation_count' column to encryption_profiles")
+        logger.debug("Added 'rotation_count' column to encryption_profiles")
+
+    # Per-profile Argon2id salt: every memory in a passphrase profile is encrypted
+    # under one derived key, so the (deliberately slow) KDF runs once per session
+    # instead of once per memory. Older memories keep their own per-memory salt.
+    if "kdf_salt" not in profile_columns:
+        c.execute("ALTER TABLE encryption_profiles ADD COLUMN kdf_salt BLOB")
+        logger.debug("Added 'kdf_salt' column to encryption_profiles")
 
     # --- Memory Tombstone Columns ---
     c.execute("PRAGMA table_info(memories)")
     memory_columns = [col[1] for col in c.fetchall()]
     if "tombstoned" not in memory_columns:
         c.execute("ALTER TABLE memories ADD COLUMN tombstoned INTEGER DEFAULT 0")
-        print("Added 'tombstoned' column to memories")
+        logger.debug("Added 'tombstoned' column to memories")
     if "tombstoned_at" not in memory_columns:
         c.execute("ALTER TABLE memories ADD COLUMN tombstoned_at TEXT")
-        print("Added 'tombstoned_at' column to memories")
+        logger.debug("Added 'tombstoned_at' column to memories")
     if "tombstone_reason" not in memory_columns:
         c.execute("ALTER TABLE memories ADD COLUMN tombstone_reason TEXT")
-        print("Added 'tombstone_reason' column to memories")
+        logger.debug("Added 'tombstone_reason' column to memories")
     if "effort_receipt_id" not in memory_columns:
         c.execute("ALTER TABLE memories ADD COLUMN effort_receipt_id TEXT")
-        print("Added 'effort_receipt_id' column to memories")
+        logger.debug("Added 'effort_receipt_id' column to memories")
     if "chain_anchor_id" not in memory_columns:
         c.execute("ALTER TABLE memories ADD COLUMN chain_anchor_id TEXT")
-        print("Added 'chain_anchor_id' column to memories")
+        logger.debug("Added 'chain_anchor_id' column to memories")
 
     # --- Signing Key Revocation Table ---
     c.execute("""
@@ -179,7 +190,7 @@ def init_db(db_path: str = None):
     merkle_root_columns = [col[1] for col in c.fetchall()]
     if "key_epoch" not in merkle_root_columns:
         c.execute("ALTER TABLE merkle_roots ADD COLUMN key_epoch INTEGER DEFAULT 0")
-        print("Added 'key_epoch' column to merkle_roots")
+        logger.debug("Added 'key_epoch' column to merkle_roots")
 
     # --- Escrow Shards Table ---
     c.execute("""
@@ -284,7 +295,7 @@ def init_db(db_path: str = None):
     for name, sql in indexes:
         if not _index_exists(c, name):
             c.execute(sql)
-            print(f"Created index: {name}")
+            logger.debug(f"Created index: {name}")
 
     # --- Full-Text Search (FTS5) ---
 
@@ -319,7 +330,7 @@ def init_db(db_path: str = None):
             INSERT INTO memories_fts(rowid, memory_id, value_metadata)
             SELECT rowid, memory_id, value_metadata FROM memories WHERE value_metadata IS NOT NULL
         """)
-        print("Initialized memories_fts")
+        logger.debug("Initialized memories_fts")
 
     if not _table_exists(c, "recall_log_fts"):
         c.execute("""
@@ -346,7 +357,7 @@ def init_db(db_path: str = None):
             INSERT INTO recall_log_fts(rowid, request_id, memory_id, justification)
             SELECT rowid, request_id, memory_id, justification FROM recall_log WHERE justification IS NOT NULL
         """)
-        print("Initialized recall_log_fts")
+        logger.debug("Initialized recall_log_fts")
 
     # --- Default Profiles ---
     default_profiles = [
@@ -363,7 +374,7 @@ def init_db(db_path: str = None):
     )
 
     conn.commit()
-    print(f"Memory Vault database initialized at {path}")
+    logger.debug(f"Memory Vault database initialized at {path}")
     return conn
 
 
@@ -395,6 +406,20 @@ def ensure_initialized(db_path: str = None):
 
 
 # === Full-Text Search Helpers ===
+
+
+def build_fts_query(text: str) -> str:
+    """Turn free text into a safe FTS5 query over the metadata column.
+
+    Raw user or model text is not valid FTS5 syntax (``dark-mode``, ``user's`` and
+    ``what?`` all raise errors or mean something unexpected). Each word becomes a
+    quoted prefix term and the terms are OR-ed, so results are ranked by how many
+    words match. Returns an empty string when the text contains no words.
+    """
+    terms = re.findall(r"\w+", text or "", flags=re.UNICODE)
+    if not terms:
+        return ""
+    return "value_metadata : (" + " OR ".join(f'"{t}"*' for t in terms[:32]) + ")"
 
 
 def search_memories_metadata(conn_or_query, query_or_limit=None, limit: int = 20) -> list[dict]:

@@ -10,7 +10,6 @@ import sqlite3
 import json
 import os
 from datetime import datetime, timedelta, timezone
-from typing import List
 
 from nacl.public import PublicKey, SealedBox
 import base64
@@ -80,7 +79,7 @@ def add_heir(name: str, public_key_b64: str) -> None:
     conn.close()
 
 
-def list_heirs() -> List[dict]:
+def list_heirs() -> list[dict]:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT name, public_key_b64 FROM dms_heirs")
@@ -89,7 +88,7 @@ def list_heirs() -> List[dict]:
     return heirs
 
 
-def arm_deadman_switch(deadline_days: int, memory_ids: List[str], justification: str) -> None:
+def arm_deadman_switch(deadline_days: int, memory_ids: list[str], justification: str) -> None:
     print(f"\n[DEAD-MAN SWITCH] Arming for {deadline_days} days")
     print("Payload will be releasable to registered heirs if no check-in.")
     confirm = input("Type 'ARM DEADMAN SWITCH' to continue: ")
@@ -163,7 +162,7 @@ def is_deadman_triggered() -> bool:
     return datetime.now(timezone.utc) > deadline
 
 
-def get_payload_memory_ids() -> List[str]:
+def get_payload_memory_ids() -> list[str]:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT payload_memory_ids FROM deadman_switch WHERE id = 1")
@@ -227,7 +226,7 @@ def encrypt_payload_for_heirs(vault) -> None:
     print("Payload encryption complete")
 
 
-def get_heir_release_packages() -> List[dict]:
+def get_heir_release_packages() -> list[dict]:
     """Export encrypted packages for delivery"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
